@@ -1,0 +1,10 @@
+/**:
+  ros__parameters:
+    camera_index: 0
+    frame_width: 1280
+    frame_height: 720
+    fps: 60
+    publish_compressed: true
+    jpeg_quality: 20
+    armed: false
+    publish_rate: 10.0
