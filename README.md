@@ -6,13 +6,13 @@
 ```
 ┌─────────────────────────────────┐          ┌──────────────────────────────────┐
 │     LattePanda (Onboard)        │          │     Laptop (Control Station)     │
-│     Ubuntu 22.04 + ROS 2        │          │     Ubuntu 22.04 + ROS 2        │
+│     Ubuntu 22.04 + ROS 2        │          │      Ubuntu 22.04 + ROS 2        │
 │                                 │   LAN    │                                  │
 │  rov_onboard package:           │◄────────►│  rov_control package:            │
-│    • camera_node       ───────────publish──►│    • camera_viewer_node          │
-│    • sensor_node       ───────────publish──►│    • dashboard_node              │
-│    • status_node       ───────────publish──►│                                  │
-│    • thruster_node     ◄──────────subscribe─│    • gamepad_node                │
+│    • camera_node      ───────────publish──►│    • camera_viewer_node          │
+│    • sensor_node      ───────────publish──►│    • dashboard_node              │
+│    • status_node      ───────────publish──►│                                  │
+│    • thruster_node    ◄──────────subscribe─│    • gamepad_node                │
 └─────────────────────────────────┘          └──────────────────────────────────┘
 ```
 
