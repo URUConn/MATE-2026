@@ -1,7 +1,7 @@
 """
-Thruster Node - Receives thruster commands from control laptop and drives motors.
+Thruster Node - Receives thruster commands and sends to MAVLink bridge.
 Runs on the LattePanda (onboard computer).
-Placeholder: replace serial/PWM logic with your actual motor driver code.
+Commands are forwarded to the MAVLink bridge, which handles communication with ArduSub autopilot.
 """
 
 import rclpy
@@ -16,6 +16,7 @@ class ThrusterNode(Node):
         self.declare_parameter('armed', False)
         self.armed = self.get_parameter('armed').value
 
+        # Subscribe to thruster commands from gamepad/control
         self.subscription = self.create_subscription(
             ThrusterCommand,
             '/rov/thruster_command',
@@ -24,20 +25,31 @@ class ThrusterNode(Node):
         )
 
         self.get_logger().info('Thruster node started (disarmed by default)')
+        self.get_logger().info('Commands will be forwarded to MAVLink bridge for ArduSub autopilot')
 
     def thruster_callback(self, msg):
+        """
+        Receive thruster commands from control station.
+        The MAVLink bridge node subscribes to the same topic and sends
+        commands to the autopilot via MAVLink/SERVO_CONTROL messages.
+
+        This node primarily logs for debugging; actual thruster control
+        happens in the MAVLink bridge node.
+        """
         if not self.armed:
+            self.get_logger().debug('Received thruster command but ROV is disarmed - ignoring')
             return
 
-        # TODO: Replace with actual motor driver commands (e.g. serial to Arduino/ESC)
+        # Log current command (debug)
         self.get_logger().debug(
-            f'Thrusters: FL={msg.thruster_front_left:.2f} '
+            f'Thruster command received - FL={msg.thruster_front_left:.2f} '
             f'FR={msg.thruster_front_right:.2f} '
             f'BL={msg.thruster_back_left:.2f} '
             f'BR={msg.thruster_back_right:.2f} '
             f'VL={msg.thruster_vertical_left:.2f} '
             f'VR={msg.thruster_vertical_right:.2f}'
         )
+        # MAVLink bridge node will also receive and process this message
 
 
 def main(args=None):

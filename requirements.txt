@@ -1,0 +1,15 @@
+# MATE-2026 ROV Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# MAVLink communication
+pymavlink>=2.4.40
+dronekit>=2.9.2
+pyserial>=3.5
+
+# ROS2 and vision
+opencv-python>=4.5.0
+pygame>=2.1.0  # For gamepad input on control laptop
+
+# Utilities
+pyyaml>=5.4
+

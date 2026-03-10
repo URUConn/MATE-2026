@@ -1,0 +1,20 @@
+/**:
+  ros__parameters:
+    # MAVLink connection parameters
+    connection_string: '/dev/ttyUSB0:115200'  # Serial connection (USB/FTDI)
+    # For UDP: 'udp:192.168.1.100:14550'
+
+    # MAVLink system and component IDs
+    system_id: 1                    # Target autopilot system ID
+    component_id: 191               # Component ID (191 = Rover/Submarine)
+
+    # Communication timing
+    heartbeat_interval: 0.1         # Heartbeat frequency (10 Hz)
+    telemetry_rate: 10              # Telemetry update rate (Hz)
+    arm_timeout: 5.0                # Timeout for arm/disarm commands (seconds)
+
+    # Servo channel mapping for thrusters
+    # Maps ROS thruster indices to PIX6 servo channels
+    # [front_left, front_right, back_left, back_right, vertical_left, vertical_right]
+    servo_channel_mapping: [1, 2, 3, 4, 5, 6]
+

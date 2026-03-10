@@ -13,7 +13,24 @@
 │    • sensor_node       ───────────publish──►│    • dashboard_node              │
 │    • status_node       ───────────publish──►│                                  │
 │    • thruster_node     ◄──────────subscribe─│    • gamepad_node                │
-└─────────────────────────────────┘          └──────────────────────────────────┘
+│                                 │          │                                  │
+│  rov_mavlink package (NEW):     │          │                                  │
+│    • mavlink_bridge_node        │          │    (Communicates with)           │
+│         ├─ ↔ MAVLink Serial ─┐  │          │                                  │
+│         └────────────────────┼──┴──────────┘                                  │
+│                              │                                               │
+│                    ┌─────────▼─────────┐                                    │
+│                    │  Radiolink PIX6   │                                    │
+│                    │  ArduSub/ChibiOS  │                                    │
+│                    │  (Autopilot)      │                                    │
+│                    └────────┬──────────┘                                    │
+│                             │ PWM/DShot                                     │
+│                    ┌────────▼──────────┐                                    │
+│                    │   Thrusters,      │                                    │
+│                    │   Sensors,        │                                    │
+│                    │   Leak Detector   │                                    │
+│                    └───────────────────┘                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### ROS 2 Topics
@@ -256,7 +273,55 @@ ros2 topic echo /rov/status
 
 ---
 
-## TROUBLESHOOTING
+## MAVLink Integration with ArduSub (NEW!)
+
+This project now integrates with the **Radiolink PIX6** autopilot running **ArduSub** 
+via the **MAVLink protocol**. The `rov_mavlink` package bridges ROS2 messages to 
+MAVLink commands, allowing the autopilot to control thrusters, read sensors, and 
+handle failsafes.
+
+### Quick Start (MAVLink)
+
+1. **Connect PIX6 to LattePanda** via USB/Serial cable:
+   ```bash
+   # Check connection
+   ls /dev/ttyUSB*  # Should show /dev/ttyUSB0 or similar
+   ```
+
+2. **Configure MAVLink parameters** in `src/rov_mavlink/config/mavlink_params.yaml`:
+   ```yaml
+   connection_string: '/dev/ttyUSB0:115200'  # Adjust port if needed
+   system_id: 1                               # Match SYSID_THISMAV in PIX6
+   ```
+
+3. **Configure PIX6 in QGroundControl**:
+   - Set `SERIAL2_PROTOCOL` to MAVLink v2 (38)
+   - Set `SERIAL2_BAUD` to 115200
+   - Configure servo channels for thrusters (CH1-CH6)
+
+4. **Launch onboard system** (includes MAVLink bridge):
+   ```bash
+   ros2 launch rov_onboard onboard_launch.py mavlink_connection:=/dev/ttyUSB0:115200
+   ```
+
+5. **Monitor telemetry**:
+   ```bash
+   ros2 topic echo /rov/status    # ROV armed state, mode
+   ros2 topic echo /rov/sensor_data  # Attitude, depth, battery
+   ```
+
+### For Detailed Setup Instructions
+
+See **[MAVLINK_SETUP.md](MAVLINK_SETUP.md)** for:
+- Hardware connection diagrams
+- PIX6 configuration steps
+- Network setup
+- Troubleshooting
+- Integration with gamepad arm/disarm commands
+
+---
+
+
 
 ### "No frames received on laptop"
 1. Check both machines have `ROS_DOMAIN_ID=42` set:
