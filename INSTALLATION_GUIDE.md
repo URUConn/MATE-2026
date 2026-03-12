@@ -291,7 +291,7 @@ ros2 topic echo /rov/thruster_command
 If no Xbox controller is connected, the system automatically falls back to keyboard:
 
 ```bash
-# On laptop, with a terminal focused on the gamepad node
+# On laptop, click the "ROV Keyboard Control" pygame window so it has keyboard focus
 # Press keys:
 #  W/A/S/D - Forward/Left/Back/Right
 #  Up/Down - Vertical thrusters

@@ -51,6 +51,7 @@ class GamepadNode(Node):
         self.keyboard_vertical = 0.0
         self.use_keyboard = False
         self.joystick = None
+        self.keyboard_window = None
 
         if not PYGAME_AVAILABLE:
             self.get_logger().error('pygame not installed. Run: pip3 install pygame')
@@ -66,11 +67,15 @@ class GamepadNode(Node):
             self.use_keyboard = False
         else:
             if use_keyboard_fallback:
-                self.get_logger().warn('⚠ No gamepad detected. Using keyboard fallback.')
+                self.get_logger().warn('No gamepad detected. Using keyboard fallback.')
                 self.get_logger().info('Keyboard Controls: W/A/S/D (move), Arrow Keys (vertical/yaw), Space (stop)')
                 self.use_keyboard = True
+                # pygame only reports keyboard state for the focused window.
+                self.keyboard_window = pygame.display.set_mode((460, 120))
+                pygame.display.set_caption('ROV Keyboard Control - Click to focus')
                 # Enable key repeat for smooth movement
                 pygame.key.set_repeat(50, 50)
+                self.get_logger().info('Click the pygame window to focus keyboard input.')
             else:
                 self.get_logger().error('No gamepad detected and keyboard fallback disabled.')
                 return
