@@ -4,7 +4,7 @@ Run this on the LattePanda.
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -19,13 +19,15 @@ def generate_launch_description():
         'onboard_params.yaml'
     )
 
-    mavros_launch = os.path.join(
-        get_package_share_directory('mavros'),
-        'launch',
-        'mavros.launch.py'
-    )
+    mavros_launch_dir = os.path.join(get_package_share_directory('mavros'), 'launch')
+    mavros_launch = None
+    for candidate in ('mavros.launch.py', 'node.launch.py', 'apm.launch.py', 'px4.launch.py'):
+        candidate_path = os.path.join(mavros_launch_dir, candidate)
+        if os.path.exists(candidate_path):
+            mavros_launch = candidate_path
+            break
 
-    return LaunchDescription([
+    actions = [
         DeclareLaunchArgument(
             'fcu_url',
             default_value='serial:///dev/ttyACM0:115200',
@@ -36,13 +38,24 @@ def generate_launch_description():
             default_value='',
             description='Optional MAVROS GCS URL'
         ),
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(mavros_launch),
-            launch_arguments={
-                'fcu_url': LaunchConfiguration('fcu_url'),
-                'gcs_url': LaunchConfiguration('gcs_url'),
-            }.items(),
-        ),
+    ]
+
+    if mavros_launch:
+        actions.append(
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(mavros_launch),
+                launch_arguments={
+                    'fcu_url': LaunchConfiguration('fcu_url'),
+                    'gcs_url': LaunchConfiguration('gcs_url'),
+                }.items(),
+            )
+        )
+    else:
+        actions.append(
+            LogInfo(msg='MAVROS launch file not found in /opt/ros/humble/share/mavros/launch. Install ros-humble-mavros.')
+        )
+
+    actions.extend([
         Node(
             package='rov_onboard',
             executable='camera_node',
@@ -79,3 +92,6 @@ def generate_launch_description():
             output='screen',
         ),
     ])
+
+    return LaunchDescription(actions)
+
