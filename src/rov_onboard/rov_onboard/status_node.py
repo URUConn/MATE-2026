@@ -7,6 +7,7 @@ import rclpy
 from rclpy.node import Node
 from rov_msgs.msg import RovStatus
 from std_msgs.msg import Bool, String
+from mavros_msgs.msg import State
 import time
 
 
@@ -20,10 +21,12 @@ class StatusNode(Node):
         self.publisher = self.create_publisher(RovStatus, '/rov/status', 10)
         self.arm_sub = self.create_subscription(Bool, '/rov/arm_cmd', self.arm_callback, 10)
         self.input_mode_sub = self.create_subscription(String, '/rov/input_mode_state', self.mode_callback, 10)
+        self.mavros_state_sub = self.create_subscription(State, '/mavros/state', self.mavros_state_callback, 10)
 
         self.start_time = time.time()
         self.current_armed = False
         self.current_mode = 'manual'
+        self.fcu_connected = False
         timer_period = 1.0 / publish_rate
         self.timer = self.create_timer(timer_period, self.publish_status)
 
@@ -46,6 +49,11 @@ class StatusNode(Node):
         mode = msg.data.strip().lower()
         if mode in ('keyboard', 'xbox'):
             self.current_mode = mode
+
+    def mavros_state_callback(self, msg: State):
+        # Prefer FCU truth when available.
+        self.fcu_connected = bool(msg.connected)
+        self.current_armed = bool(msg.armed)
 
     def _read_cpu_temp(self):
         """Read CPU temperature on Linux. Returns 0.0 on failure."""

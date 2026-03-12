@@ -13,6 +13,7 @@
   <depend>cv_bridge</depend>
   <depend>image_transport</depend>
   <depend>rov_msgs</depend>
+  <depend>mavros_msgs</depend>
 
   <exec_depend>ros2launch</exec_depend>
 

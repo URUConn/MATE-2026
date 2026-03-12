@@ -7,13 +7,6 @@ from std_msgs.msg import Bool, String
 import time
 
 try:
-    from mavros_msgs.srv import CommandBool
-    MAVROS_SERVICE_AVAILABLE = True
-except ImportError:
-    CommandBool = None
-    MAVROS_SERVICE_AVAILABLE = False
-
-try:
     import pygame
     PYGAME_AVAILABLE = True
 except ImportError:
@@ -69,10 +62,6 @@ class DashboardNode(Node):
 
         self.timer = self.create_timer(1.0 / display_rate, self.tick)
 
-        self.mavros_arm_client = None
-        if MAVROS_SERVICE_AVAILABLE:
-            self.mavros_arm_client = self.create_client(CommandBool, '/mavros/cmd/arming')
-
         self.get_logger().info('Dashboard UI started')
 
     def sensor_callback(self, msg):
@@ -89,7 +78,6 @@ class DashboardNode(Node):
         self.pending_arm_state = armed
         self.pending_arm_retries = 8
         self.pending_arm_sent_time = time.time()
-        self.call_mavros_arm(armed)
         self.last_click_feedback = 'Sent ARM command' if armed else 'Sent DISARM command'
 
     def publish_arm_gate(self, armed: bool):
@@ -97,16 +85,6 @@ class DashboardNode(Node):
         msg.data = armed
         self.arm_pub.publish(msg)
 
-    def call_mavros_arm(self, armed: bool):
-        if not self.mavros_arm_client:
-            return
-        if not self.mavros_arm_client.service_is_ready():
-            self.last_click_feedback += ' (MAVROS arming service not ready)'
-            return
-
-        req = CommandBool.Request()
-        req.value = armed
-        self.mavros_arm_client.call_async(req)
 
     def publish_input_mode(self, mode: str):
         msg = String()

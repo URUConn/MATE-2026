@@ -12,6 +12,7 @@ import rclpy
 from rclpy.node import Node
 from rov_msgs.msg import ThrusterCommand
 from mavros_msgs.msg import OverrideRCIn
+from mavros_msgs.srv import CommandBool
 from std_msgs.msg import Bool
 import threading
 import time
@@ -66,6 +67,7 @@ class MavrosBridgeNode(Node):
             self.arm_callback,
             10
         )
+        self.arm_client = self.create_client(CommandBool, '/mavros/cmd/arming')
 
         # State tracking
         self.last_command_time = None
@@ -94,15 +96,43 @@ class MavrosBridgeNode(Node):
     def arm_callback(self, msg: Bool):
         """Arm or disarm runtime command from control laptop."""
         requested = bool(msg.data)
-        if requested == self.armed:
+        if not requested:
+            # Always gate off immediately on disarm for safety.
+            if self.armed:
+                self.get_logger().warn('Runtime arm state changed: DISARMED')
+            self.armed = False
+            self.publish_neutral_override()
+
+        if not self.arm_client.service_is_ready():
+            self.get_logger().warn('MAVROS arming service not ready: /mavros/cmd/arming')
             return
 
-        self.armed = requested
-        state = 'ARMED' if self.armed else 'DISARMED'
-        self.get_logger().warn(f'Runtime arm state changed: {state}')
+        req = CommandBool.Request()
+        req.value = requested
+        future = self.arm_client.call_async(req)
+        future.add_done_callback(lambda f: self._on_arm_service_response(f, requested))
 
-        if not self.armed:
-            self.publish_neutral_override()
+    def _on_arm_service_response(self, future, requested: bool):
+        try:
+            response = future.result()
+        except Exception as ex:
+            self.get_logger().error(f'Arming service call failed: {ex}')
+            if requested:
+                self.armed = False
+            return
+
+        if response.success:
+            self.armed = requested
+            state = 'ARMED' if requested else 'DISARMED'
+            self.get_logger().warn(f'FCU arm command accepted: {state}')
+            if not requested:
+                self.publish_neutral_override()
+        else:
+            if requested:
+                self.armed = False
+            self.get_logger().error(
+                f'FCU arm command rejected (result={response.result})'
+            )
 
     def publish_neutral_override(self):
         """Send neutral RC values immediately when disarmed or timed out."""
