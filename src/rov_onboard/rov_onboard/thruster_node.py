@@ -10,6 +10,7 @@ from rov_msgs.msg import ThrusterCommand
 from std_msgs.msg import Bool
 from mavros_msgs.msg import ActuatorControl
 from mavros_msgs.msg import State
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 import time
 
 
@@ -59,17 +60,25 @@ class ThrusterNode(Node):
             self.arm_callback,
             10
         )
+
+        # MAVROS state is typically published as BEST_EFFORT.
+        mavros_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=5,
+        )
+
         self.mavros_state_sub = self.create_subscription(
             State,
             '/mavros/state',
-            self.mavros_state_callback,
-            10
+            lambda msg: self.mavros_state_callback(msg, 'mavros'),
+            mavros_qos,
         )
         self.mavros_state_sub_uas1 = self.create_subscription(
             State,
             '/uas1/mavros/state',
-            self.mavros_state_callback,
-            10
+            lambda msg: self.mavros_state_callback(msg, 'uas1'),
+            mavros_qos,
         )
 
         # State tracking
@@ -83,20 +92,17 @@ class ThrusterNode(Node):
         self.get_logger().info('Arm/disarm topic: /rov/arm_cmd (std_msgs/Bool)')
         self.get_logger().info('Motor control via MAVROS ActuatorControl')
 
-    def mavros_state_callback(self, msg: State):
+    def mavros_state_callback(self, msg: State, source: str):
         """Track FCU connection status from either namespace."""
-        # Update both namespace tracking and combined connection status
-        if msg._connection.node_name == '/mavros/mavros' or '/mavros/state' in str(msg):
-            self.connected_namespaces['mavros'] = bool(msg.connected)
-        else:
-            self.connected_namespaces['uas1'] = bool(msg.connected)
-        
+        self.connected_namespaces[source] = bool(msg.connected)
+
         # Connection is true if either namespace is connected
         self.fcu_connected = any(self.connected_namespaces.values())
-        
+
         now = time.time()
         if self.fcu_connected and now - self.last_log_time > 10.0:
-            self.get_logger().info('FCU connected via MAVROS')
+            connected_sources = [name for name, connected in self.connected_namespaces.items() if connected]
+            self.get_logger().info(f'FCU connected via MAVROS ({", ".join(connected_sources)})')
             self.last_log_time = now
         elif not self.fcu_connected and now - self.last_log_time > 10.0:
             self.get_logger().warn('FCU disconnected - motors will not respond')
