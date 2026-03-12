@@ -78,6 +78,8 @@ class MavrosBridgeNode(Node):
         self.last_command_time = None
         self.connection_timeout = 5.0  # seconds
         self.fcu_connected = False
+        self.last_waiting_log_time = 0.0
+        self.last_arm_service_warn_time = 0.0
 
         # Initial state - all channels to neutral
         self.rc_channels = self._build_neutral_channels()
@@ -104,7 +106,10 @@ class MavrosBridgeNode(Node):
 
         arm_client = self._get_ready_arm_client()
         if arm_client is None:
-            self.get_logger().warn('MAVROS arming service not ready: tried /mavros/cmd/arming and /cmd/arming')
+            now = time.time()
+            if now - self.last_arm_service_warn_time > 2.0:
+                self.get_logger().warn('MAVROS arming service not ready: tried /mavros/cmd/arming and /cmd/arming')
+                self.last_arm_service_warn_time = now
             return
 
         req = CommandBool.Request()
@@ -230,7 +235,10 @@ class MavrosBridgeNode(Node):
         """Check if we're receiving commands and if FCU is connected"""
         if self.last_command_time is None:
             if not self.fcu_connected:
-                self.get_logger().info('Waiting for thruster commands and FCU connection...')
+                now = time.time()
+                if now - self.last_waiting_log_time > 10.0:
+                    self.get_logger().info('Waiting for thruster commands and FCU connection...')
+                    self.last_waiting_log_time = now
             self.fcu_connected = False
             return
 
