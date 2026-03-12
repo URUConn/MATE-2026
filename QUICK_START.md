@@ -215,11 +215,12 @@ lsusb | grep -i "silicon labs\|cp210x"
 # Check gamepad/keyboard is working
 ps aux | grep gamepad_node
 
-# Test manually publishing
+# Test manually publishing (8 thrusters: 4 horizontal + 4 vertical)
 ros2 topic pub /rov/thruster_command rov_msgs/ThrusterCommand \
   "{thruster_front_left: 0.5, thruster_front_right: 0.5, \
     thruster_back_left: 0.5, thruster_back_right: 0.5, \
-    thruster_vertical_left: 0.5, thruster_vertical_right: 0.5}"
+    thruster_vertical_front_left: 0.5, thruster_vertical_front_right: 0.5, \
+    thruster_vertical_back_left: 0.5, thruster_vertical_back_right: 0.5}"
 ```
 
 ### Xbox Controller Not Detected

@@ -17,14 +17,15 @@ class ThrusterNode(Node):
     """
     Converts ThrusterCommand messages to MAVROS ActuatorControl for direct motor control.
     
-    Thruster mapping (6-thruster vectored ROV):
-    - Channel 0: Front left motor
-    - Channel 1: Front right motor
-    - Channel 2: Back left motor
-    - Channel 3: Back right motor
-    - Channel 4: Vertical left motor
-    - Channel 5: Vertical right motor
-    - Channels 6-7: Reserved/unused
+    Thruster mapping (8-thruster vectored ROV with 4 vertical thrusters):
+    - Channel 0: Front left motor (horizontal)
+    - Channel 1: Front right motor (horizontal)
+    - Channel 2: Back left motor (horizontal)
+    - Channel 3: Back right motor (horizontal)
+    - Channel 4: Vertical front left motor
+    - Channel 5: Vertical front right motor
+    - Channel 6: Vertical back left motor
+    - Channel 7: Vertical back right motor
     """
 
     def __init__(self):
@@ -138,33 +139,40 @@ class ThrusterNode(Node):
         self.last_command_time = time.time()
 
         # Extract normalized thrust values (-1.0 to 1.0) and apply scaling
+        # Horizontal thrusters
         fl = msg.thruster_front_left * self.thrust_scaling
         fr = msg.thruster_front_right * self.thrust_scaling
         bl = msg.thruster_back_left * self.thrust_scaling
         br = msg.thruster_back_right * self.thrust_scaling
-        vl = msg.thruster_vertical_left * self.thrust_scaling
-        vr = msg.thruster_vertical_right * self.thrust_scaling
+        # Vertical thrusters (4 vertical thrusters)
+        vfl = msg.thruster_vertical_front_left * self.thrust_scaling
+        vfr = msg.thruster_vertical_front_right * self.thrust_scaling
+        vbl = msg.thruster_vertical_back_left * self.thrust_scaling
+        vbr = msg.thruster_vertical_back_right * self.thrust_scaling
 
         # Clamp all values to [-1.0, 1.0] range
         fl = max(-1.0, min(1.0, fl))
         fr = max(-1.0, min(1.0, fr))
         bl = max(-1.0, min(1.0, bl))
         br = max(-1.0, min(1.0, br))
-        vl = max(-1.0, min(1.0, vl))
-        vr = max(-1.0, min(1.0, vr))
+        vfl = max(-1.0, min(1.0, vfl))
+        vfr = max(-1.0, min(1.0, vfr))
+        vbl = max(-1.0, min(1.0, vbl))
+        vbr = max(-1.0, min(1.0, vbr))
 
         # Build MAVROS ActuatorControl message
-        # Channels 0-5 map to our 6 thrusters
+        # Channels 0-7 map to our 8 thrusters
         actuator_msg = ActuatorControl()
         actuator_msg.header.stamp = self.get_clock().now().to_msg()
         actuator_msg.group_mix = 0  # Group 0: standard multirotor/vectored
-        actuator_msg.controls = [fl, fr, bl, br, vl, vr, 0.0, 0.0]
+        actuator_msg.controls = [fl, fr, bl, br, vfl, vfr, vbl, vbr]
 
         self.actuator_pub.publish(actuator_msg)
 
         # Log at debug level to reduce spam
         self.get_logger().debug(
-            f'Actuators - FL:{fl:.2f} FR:{fr:.2f} BL:{bl:.2f} BR:{br:.2f} VL:{vl:.2f} VR:{vr:.2f}'
+            f'Actuators - FL:{fl:.2f} FR:{fr:.2f} BL:{bl:.2f} BR:{br:.2f} '
+            f'VFL:{vfl:.2f} VFR:{vfr:.2f} VBL:{vbl:.2f} VBR:{vbr:.2f}'
         )
 
 

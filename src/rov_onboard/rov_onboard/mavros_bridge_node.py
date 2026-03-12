@@ -5,6 +5,8 @@ Runs on the LattePanda (onboard computer).
 Converts ThrusterCommand messages to MAVROS RC Override commands for the PIX6 flight controller.
 This allows the gamepad/keyboard input from the laptop to drive the ROV thrusters via ArduSub.
 
+Supports 8-thruster Vectored ROV with 4 vertical thrusters configuration.
+
 Note: Requires MAVROS2 to be installed and the PIX6 connected via USB.
 """
 
@@ -259,36 +261,44 @@ class MavrosBridgeNode(Node):
         """
         Convert ThrusterCommand to MAVROS RC Override.
         
-        Thruster layout assumption (6-thruster vectored ROV):
+        Thruster layout (8-thruster vectored ROV with 4 vertical thrusters):
+        Horizontal thrusters (for forward/backward, strafe, yaw):
         - Front left, front right: forward/backward + strafe + yaw
         - Back left, back right: forward/backward + strafe + yaw
-        - Vertical left, vertical right: up/down
+        
+        Vertical thrusters (for up/down, roll, pitch):
+        - Vertical front left, vertical front right: up/down + pitch + roll
+        - Vertical back left, vertical back right: up/down + pitch + roll
         """
         if not self.armed:
             return
 
         self.last_command_time = time.time()
 
-        # Extract thrust values (normalized -1.0 to 1.0)
+        # Extract horizontal thrust values (normalized -1.0 to 1.0)
         fl = msg.thruster_front_left * self.thrust_scaling
         fr = msg.thruster_front_right * self.thrust_scaling
         bl = msg.thruster_back_left * self.thrust_scaling
         br = msg.thruster_back_right * self.thrust_scaling
-        vl = msg.thruster_vertical_left * self.thrust_scaling
-        vr = msg.thruster_vertical_right * self.thrust_scaling
+        
+        # Extract vertical thrust values (4 vertical thrusters)
+        vfl = msg.thruster_vertical_front_left * self.thrust_scaling
+        vfr = msg.thruster_vertical_front_right * self.thrust_scaling
+        vbl = msg.thruster_vertical_back_left * self.thrust_scaling
+        vbr = msg.thruster_vertical_back_right * self.thrust_scaling
 
         # Compute directional commands from thruster outputs
-        # Roll (Channel 1): Front left vs Front right difference
-        roll = ((fl + bl) - (fr + br)) / 2.0
+        # Roll (Channel 1): Differential between left and right vertical thrusters
+        roll = ((vfl + vbl) - (vfr + vbr)) / 2.0
         
-        # Pitch (Channel 2): (Front - Back) for pitch control
-        pitch = ((fl + fr) - (bl + br)) / 2.0
+        # Pitch (Channel 2): Differential between front and back vertical thrusters
+        pitch = ((vfl + vfr) - (vbl + vbr)) / 2.0
         
-        # Throttle/Vertical (Channel 3): Average of vertical thrusters
-        throttle = (vl + vr) / 2.0
+        # Throttle/Vertical (Channel 3): Average of all vertical thrusters
+        throttle = (vfl + vfr + vbl + vbr) / 4.0
         
-        # Yaw (Channel 4): Front left + back right vs Front right + back left
-        yaw = ((fl - fr) + (br - bl)) / 2.0
+        # Yaw (Channel 4): Differential from horizontal thrusters
+        yaw = ((fl + br) - (fr + bl)) / 2.0
 
         # Clamp values to [-1.0, 1.0]
         roll = max(-1.0, min(1.0, roll))

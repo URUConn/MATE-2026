@@ -183,22 +183,24 @@ INPUT DEVICES:
 
 1. **gamepad_node** reads keyboard: `keys[pygame.K_w]`
 2. Sets `keyboard_forward = max_power (1.0)`
-3. Publishes `ThrusterCommand`:
+3. Publishes `ThrusterCommand` (8-thruster vectored ROV with 4 vertical):
    ```
    thruster_front_left = 1.0
    thruster_front_right = 1.0
    thruster_back_left = 1.0
    thruster_back_right = 1.0
-   thruster_vertical_left = 0.0
-   thruster_vertical_right = 0.0
+   thruster_vertical_front_left = 0.0
+   thruster_vertical_front_right = 0.0
+   thruster_vertical_back_left = 0.0
+   thruster_vertical_back_right = 0.0
    ```
 4. **mavros_bridge_node** receives it
 5. Calculates mixing:
-   - pitch = (FL + FR - BL - BR) / 2 = 1.0
-   - roll = (FL + BL - FR - BR) / 2 = 0.0
-   - yaw = (FL - FR - BL + BR) / 2 = 0.0
-   - throttle = (VL + VR) / 2 = 0.0
-6. Converts to RC PWM (pitch=1.0 → 2000 µs)
+   - roll = (VFL + VBL - VFR - VBR) / 2 = 0.0
+   - pitch = (VFL + VFR - VBL - VBR) / 2 = 0.0
+   - throttle = (VFL + VFR + VBL + VBR) / 4 = 0.0
+   - yaw = (FL + BR - FR - BL) / 2 = 0.0
+6. Converts to RC PWM (centered → 1500 µs)
 7. Publishes `/mavros/rc/override`
 8. **PIX6** receives RC override via MAVLink/USB
 9. ArduSub firmware applies its motor matrix

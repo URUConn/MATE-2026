@@ -286,19 +286,24 @@ class GamepadNode(Node):
         yaw = self.keyboard_yaw
         vertical = self.keyboard_vertical
 
-        # Convert to individual thruster values (basic mixing for 6-thruster vectored ROV)
+        # Convert to individual thruster values (8-thruster vectored ROV with 4 vertical thrusters)
         msg = ThrusterCommand()
+        # Horizontal thrusters for forward/backward, strafe, yaw
         msg.thruster_front_left = float(forward + strafe + yaw)
         msg.thruster_front_right = float(forward - strafe - yaw)
         msg.thruster_back_left = float(forward - strafe + yaw)
         msg.thruster_back_right = float(forward + strafe - yaw)
-        msg.thruster_vertical_left = float(vertical)
-        msg.thruster_vertical_right = float(vertical)
+        # Vertical thrusters for up/down (all 4 vertical thrusters move together for pure vertical)
+        msg.thruster_vertical_front_left = float(vertical)
+        msg.thruster_vertical_front_right = float(vertical)
+        msg.thruster_vertical_back_left = float(vertical)
+        msg.thruster_vertical_back_right = float(vertical)
 
         # Clamp all values to [-1.0, 1.0]
         for attr in ['thruster_front_left', 'thruster_front_right',
                       'thruster_back_left', 'thruster_back_right',
-                      'thruster_vertical_left', 'thruster_vertical_right']:
+                      'thruster_vertical_front_left', 'thruster_vertical_front_right',
+                      'thruster_vertical_back_left', 'thruster_vertical_back_right']:
             val = getattr(msg, attr)
             setattr(msg, attr, max(-1.0, min(1.0, val)))
 
