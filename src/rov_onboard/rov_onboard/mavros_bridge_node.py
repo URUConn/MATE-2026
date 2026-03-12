@@ -73,13 +73,13 @@ class MavrosBridgeNode(Node):
         self.mavros_state_sub = self.create_subscription(
             State,
             '/mavros/state',
-            self.mavros_state_callback,
+            lambda msg: self.mavros_state_callback(msg, 'mavros'),
             10,
         )
         self.mavros_state_sub_uas1 = self.create_subscription(
             State,
             '/uas1/mavros/state',
-            self.mavros_state_callback,
+            lambda msg: self.mavros_state_callback(msg, 'uas1'),
             10,
         )
         self.arm_clients = {
@@ -93,6 +93,9 @@ class MavrosBridgeNode(Node):
         self.last_command_time = None
         self.connection_timeout = 5.0  # seconds
         self.fcu_connected = False
+        self.connected_namespaces = {'mavros': False, 'uas1': False}
+        self.active_namespace = None
+        self.active_arm_service = None
         self.last_waiting_log_time = 0.0
         self.last_arm_service_warn_time = 0.0
 
@@ -133,13 +136,51 @@ class MavrosBridgeNode(Node):
         future.add_done_callback(lambda f: self._on_arm_service_response(f, requested))
 
     def _get_ready_arm_client(self):
+        ordered_service_candidates = []
+
+        if self.active_namespace == 'uas1':
+            ordered_service_candidates.extend([
+                '/uas1/mavros/cmd/arming',
+                '/uas1/cmd/arming',
+            ])
+        elif self.active_namespace == 'mavros':
+            ordered_service_candidates.extend([
+                '/mavros/cmd/arming',
+                '/cmd/arming',
+            ])
+
+        # Fallback if active namespace is unknown or service is temporarily unavailable.
+        ordered_service_candidates.extend([
+            '/mavros/cmd/arming',
+            '/cmd/arming',
+            '/uas1/mavros/cmd/arming',
+            '/uas1/cmd/arming',
+        ])
+
+        for service_name in ordered_service_candidates:
+            client = self.arm_clients.get(service_name)
+            if client and client.service_is_ready():
+                if self.active_arm_service != service_name:
+                    self.active_arm_service = service_name
+                    self.get_logger().info(f'Using arming service: {service_name}')
+                return client
+
+        self.active_arm_service = None
         for _, client in self.arm_clients.items():
             if client.service_is_ready():
                 return client
         return None
 
-    def mavros_state_callback(self, msg: State):
-        self.fcu_connected = bool(msg.connected)
+    def mavros_state_callback(self, msg: State, source: str):
+        self.connected_namespaces[source] = bool(msg.connected)
+        self.fcu_connected = any(self.connected_namespaces.values())
+
+        if self.connected_namespaces['uas1']:
+            self.active_namespace = 'uas1'
+        elif self.connected_namespaces['mavros']:
+            self.active_namespace = 'mavros'
+        else:
+            self.active_namespace = None
 
     def _on_arm_service_response(self, future, requested: bool):
         try:
