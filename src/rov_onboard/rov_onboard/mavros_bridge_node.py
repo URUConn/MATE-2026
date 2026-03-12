@@ -12,6 +12,7 @@ import rclpy
 from rclpy.node import Node
 from rov_msgs.msg import ThrusterCommand
 from mavros_msgs.msg import OverrideRCIn
+from mavros_msgs.msg import State
 from mavros_msgs.srv import CommandBool
 from std_msgs.msg import Bool
 import time
@@ -69,9 +70,23 @@ class MavrosBridgeNode(Node):
             self.arm_callback,
             10
         )
+        self.mavros_state_sub = self.create_subscription(
+            State,
+            '/mavros/state',
+            self.mavros_state_callback,
+            10,
+        )
+        self.mavros_state_sub_uas1 = self.create_subscription(
+            State,
+            '/uas1/mavros/state',
+            self.mavros_state_callback,
+            10,
+        )
         self.arm_clients = {
             '/mavros/cmd/arming': self.create_client(CommandBool, '/mavros/cmd/arming'),
             '/cmd/arming': self.create_client(CommandBool, '/cmd/arming'),
+            '/uas1/mavros/cmd/arming': self.create_client(CommandBool, '/uas1/mavros/cmd/arming'),
+            '/uas1/cmd/arming': self.create_client(CommandBool, '/uas1/cmd/arming'),
         }
 
         # State tracking
@@ -122,6 +137,9 @@ class MavrosBridgeNode(Node):
             if client.service_is_ready():
                 return client
         return None
+
+    def mavros_state_callback(self, msg: State):
+        self.fcu_connected = bool(msg.connected)
 
     def _on_arm_service_response(self, future, requested: bool):
         try:
@@ -233,13 +251,17 @@ class MavrosBridgeNode(Node):
 
     def check_connection(self):
         """Check if we're receiving commands and if FCU is connected"""
+        now = time.time()
+
+        if not self.fcu_connected:
+            if now - self.last_waiting_log_time > 10.0:
+                self.get_logger().info('Waiting for FCU connection from MAVROS state...')
+                self.last_waiting_log_time = now
+
         if self.last_command_time is None:
-            if not self.fcu_connected:
-                now = time.time()
-                if now - self.last_waiting_log_time > 10.0:
-                    self.get_logger().info('Waiting for thruster commands and FCU connection...')
-                    self.last_waiting_log_time = now
-            self.fcu_connected = False
+            if self.fcu_connected and now - self.last_waiting_log_time > 10.0:
+                self.get_logger().info('FCU connected, waiting for thruster commands on /rov/thruster_command...')
+                self.last_waiting_log_time = now
             return
 
         time_since_last_command = time.time() - self.last_command_time
@@ -248,13 +270,9 @@ class MavrosBridgeNode(Node):
             # No commands received recently - send neutral commands to prevent drift
             if self.armed:
                 self.publish_neutral_override()
-            self.fcu_connected = False
             self.get_logger().warn('No thruster commands received (timeout)')
             return
 
-        if not self.fcu_connected:
-            self.get_logger().info('✓ Connected to MAVROS and receiving commands')
-            self.fcu_connected = True
 
 
 def main(args=None):
