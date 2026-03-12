@@ -5,3 +5,12 @@
     deadzone: 0.1
     max_power: 1.0
     display_rate: 2.0
+    
+    # Gamepad node parameters
+    gamepad_node:
+      ros__parameters:
+        publish_rate: 50.0
+        deadzone: 0.1
+        max_power: 1.0
+        # Set to true to enable keyboard fallback when no gamepad is detected
+        use_keyboard_fallback: true

@@ -8,3 +8,24 @@
     jpeg_quality: 20
     armed: false
     publish_rate: 10.0
+
+    # MAVROS Bridge configuration (PIX6 flight controller)
+    mavros_bridge_node:
+      ros__parameters:
+        # Set to true ONLY after hardware is fully configured and tested
+        armed: false
+        
+        # PIX6 serial port (check with: ls /dev/ttyACM* or /dev/ttyUSB*)
+        # Common values: /dev/ttyACM0, /dev/ttyUSB0
+        fcu_port: "/dev/ttyACM0"
+        
+        # Serial baud rate (must match PIX6 configuration)
+        fcu_baud: 115200
+        
+        # Thrust scaling factor (1.0 = full scale, 0.5 = half scale for safety)
+        thrust_scaling: 0.5
+        
+        # RC PWM limits (standard RC servo range)
+        rc_min_pwm: 1000
+        rc_max_pwm: 2000
+        rc_center_pwm: 1500

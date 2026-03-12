@@ -30,6 +30,7 @@ setup(
             'thruster_node = rov_onboard.thruster_node:main',
             'sensor_node = rov_onboard.sensor_node:main',
             'status_node = rov_onboard.status_node:main',
+            'mavros_bridge_node = rov_onboard.mavros_bridge_node:main',
         ],
     },
 )

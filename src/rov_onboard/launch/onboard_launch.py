@@ -45,4 +45,11 @@ def generate_launch_description():
             parameters=[config],
             output='screen',
         ),
+        Node(
+            package='rov_onboard',
+            executable='mavros_bridge_node',
+            name='mavros_bridge_node',
+            parameters=[config],
+            output='screen',
+        ),
     ])
