@@ -84,8 +84,10 @@ class MavrosBridgeNode(Node):
         )
         self.arm_clients = {
             '/mavros/cmd/arming': self.create_client(CommandBool, '/mavros/cmd/arming'),
+            '/mavros/mavros/arming': self.create_client(CommandBool, '/mavros/mavros/arming'),
             '/cmd/arming': self.create_client(CommandBool, '/cmd/arming'),
             '/uas1/mavros/cmd/arming': self.create_client(CommandBool, '/uas1/mavros/cmd/arming'),
+            '/uas1/mavros/arming': self.create_client(CommandBool, '/uas1/mavros/arming'),
             '/uas1/cmd/arming': self.create_client(CommandBool, '/uas1/cmd/arming'),
         }
 
@@ -126,7 +128,11 @@ class MavrosBridgeNode(Node):
         if arm_client is None:
             now = time.time()
             if now - self.last_arm_service_warn_time > 2.0:
-                self.get_logger().warn('MAVROS arming service not ready: tried /mavros/cmd/arming and /cmd/arming')
+                self.get_logger().warn(
+                    'MAVROS arming service not ready: '
+                    'tried /mavros/cmd/arming, /mavros/mavros/arming, /cmd/arming, '
+                    '/uas1/mavros/cmd/arming, /uas1/mavros/arming, /uas1/cmd/arming'
+                )
                 self.last_arm_service_warn_time = now
             return
 
@@ -141,19 +147,23 @@ class MavrosBridgeNode(Node):
         if self.active_namespace == 'uas1':
             ordered_service_candidates.extend([
                 '/uas1/mavros/cmd/arming',
+                '/uas1/mavros/arming',
                 '/uas1/cmd/arming',
             ])
         elif self.active_namespace == 'mavros':
             ordered_service_candidates.extend([
                 '/mavros/cmd/arming',
+                '/mavros/mavros/arming',
                 '/cmd/arming',
             ])
 
         # Fallback if active namespace is unknown or service is temporarily unavailable.
         ordered_service_candidates.extend([
             '/mavros/cmd/arming',
+            '/mavros/mavros/arming',
             '/cmd/arming',
             '/uas1/mavros/cmd/arming',
+            '/uas1/mavros/arming',
             '/uas1/cmd/arming',
         ])
 
