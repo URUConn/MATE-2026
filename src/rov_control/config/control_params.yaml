@@ -4,6 +4,9 @@
     publish_rate: 50.0
     deadzone: 0.1
     max_power: 1.0
+    # Force keyboard mode for testing without a controller.
+    # Set this to false when using a real Xbox controller.
+    force_keyboard_mode: true
     display_rate: 2.0
     
     # Gamepad node parameters

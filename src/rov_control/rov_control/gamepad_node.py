@@ -36,11 +36,13 @@ class GamepadNode(Node):
         self.declare_parameter('deadzone', 0.1)
         self.declare_parameter('max_power', 1.0)
         self.declare_parameter('use_keyboard_fallback', True)
+        self.declare_parameter('force_keyboard_mode', False)
 
         publish_rate = self.get_parameter('publish_rate').value
         self.deadzone = self.get_parameter('deadzone').value
         self.max_power = self.get_parameter('max_power').value
         use_keyboard_fallback = self.get_parameter('use_keyboard_fallback').value
+        force_keyboard_mode = self.get_parameter('force_keyboard_mode').value
 
         self.publisher = self.create_publisher(ThrusterCommand, '/rov/thruster_command', 10)
 
@@ -52,6 +54,7 @@ class GamepadNode(Node):
         self.use_keyboard = False
         self.joystick = None
         self.keyboard_window = None
+        self.ui_font = None
 
         if not PYGAME_AVAILABLE:
             self.get_logger().error('pygame not installed. Run: pip3 install pygame')
@@ -59,8 +62,12 @@ class GamepadNode(Node):
 
         pygame.init()
         pygame.joystick.init()
+        pygame.font.init()
 
-        if pygame.joystick.get_count() > 0:
+        joystick_count = pygame.joystick.get_count()
+        self.get_logger().info(f'Detected joystick count: {joystick_count}')
+
+        if joystick_count > 0 and not force_keyboard_mode:
             self.joystick = pygame.joystick.Joystick(0)
             self.joystick.init()
             self.get_logger().info(f'✓ Gamepad connected: {self.joystick.get_name()}')
@@ -69,10 +76,13 @@ class GamepadNode(Node):
             if use_keyboard_fallback:
                 self.get_logger().warn('No gamepad detected. Using keyboard fallback.')
                 self.get_logger().info('Keyboard Controls: W/A/S/D (move), Arrow Keys (vertical/yaw), Space (stop)')
+                if force_keyboard_mode and joystick_count > 0:
+                    self.get_logger().warn('force_keyboard_mode=true, ignoring detected joystick(s).')
                 self.use_keyboard = True
                 # pygame only reports keyboard state for the focused window.
-                self.keyboard_window = pygame.display.set_mode((460, 120))
+                self.keyboard_window = pygame.display.set_mode((620, 220))
                 pygame.display.set_caption('ROV Keyboard Control - Click to focus')
+                self.ui_font = pygame.font.SysFont(None, 24)
                 # Enable key repeat for smooth movement
                 pygame.key.set_repeat(50, 50)
                 self.get_logger().info('Click the pygame window to focus keyboard input.')
@@ -94,8 +104,37 @@ class GamepadNode(Node):
             self.read_keyboard()
         else:
             self.read_gamepad()
+
+        if self.use_keyboard:
+            self.draw_keyboard_overlay()
         
         self.publish_thruster_command()
+
+    def draw_keyboard_overlay(self):
+        """Draw current input values and key map in the keyboard control window."""
+        if not self.keyboard_window or not self.ui_font:
+            return
+
+        self.keyboard_window.fill((20, 24, 33))
+        focused = pygame.key.get_focused()
+        focus_text = 'FOCUSED' if focused else 'NOT FOCUSED (click this window)'
+        focus_color = (90, 220, 120) if focused else (255, 190, 80)
+
+        lines = [
+            ('ROV Keyboard Control', (240, 240, 240)),
+            (f'Window status: {focus_text}', focus_color),
+            (f'Forward: {self.keyboard_forward:+.2f}   Strafe: {self.keyboard_strafe:+.2f}', (200, 210, 230)),
+            (f'Yaw:     {self.keyboard_yaw:+.2f}   Vertical: {self.keyboard_vertical:+.2f}', (200, 210, 230)),
+            ('Keys: W/A/S/D move, Arrows vertical+yaw, Space stop', (180, 180, 180)),
+        ]
+
+        y = 16
+        for text, color in lines:
+            surface = self.ui_font.render(text, True, color)
+            self.keyboard_window.blit(surface, (16, y))
+            y += 36
+
+        pygame.display.flip()
 
     def read_gamepad(self):
         """Read Xbox controller input"""
@@ -190,6 +229,11 @@ class GamepadNode(Node):
             setattr(msg, attr, max(-1.0, min(1.0, val)))
 
         self.publisher.publish(msg)
+
+    def destroy_node(self):
+        if PYGAME_AVAILABLE:
+            pygame.quit()
+        return super().destroy_node()
 
 
 def main(args=None):

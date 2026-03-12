@@ -264,6 +264,8 @@ Expected output:
 
 ## STEP 9: Test Xbox Controller Input
 
+Before testing with a controller, make sure `force_keyboard_mode` is set to `false` in `src/rov_control/config/control_params.yaml`.
+
 ### Quick Test
 With both systems running:
 
@@ -298,6 +300,8 @@ If no Xbox controller is connected, the system automatically falls back to keybo
 #  Left/Right - Yaw (rotation)
 #  Space - Stop all thrusters
 ```
+
+If you do not see the keyboard window, check the gamepad node logs for `Detected joystick count:` and make sure `force_keyboard_mode: true` is set for keyboard-only testing.
 
 ---
 
