@@ -19,9 +19,9 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='MATE ROV Team',
-    maintainer_email='team@mate-rov.org',
-    description='Onboard nodes for MATE ROV (runs on LattePanda)',
+    maintainer='URUC',
+    maintainer_email='uconn-uruc@gmail.com',
+    description='Onboard nodes for MATE ROV (runs on Ubuntu/LattePanda)',
     license='MIT',
     tests_require=['pytest'],
     entry_points={

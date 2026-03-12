@@ -100,6 +100,7 @@ class MavrosBridgeNode(Node):
         self.active_arm_service = None
         self.last_waiting_log_time = 0.0
         self.last_arm_service_warn_time = 0.0
+        self.last_timeout_warn_time = 0.0
 
         # Initial state - all channels to neutral
         self.rc_channels = self._build_neutral_channels()
@@ -116,13 +117,10 @@ class MavrosBridgeNode(Node):
     def arm_callback(self, msg: Bool):
         """Arm or disarm runtime command from control laptop."""
         requested = bool(msg.data)
-        if not requested:
+        if not requested and self.armed:
             # Always gate off immediately on disarm for safety.
-            if self.armed:
-                self.get_logger().warn('Runtime arm state changed: DISARMED')
-            self.armed = False
+            self.get_logger().warn('Runtime arm state changed: DISARMED')
             self.publish_neutral_override()
-            return
 
         arm_client = self._get_ready_arm_client()
         if arm_client is None:
@@ -321,7 +319,10 @@ class MavrosBridgeNode(Node):
             # No commands received recently - send neutral commands to prevent drift
             if self.armed:
                 self.publish_neutral_override()
-            self.get_logger().warn('No thruster commands received (timeout)')
+            now = time.time()
+            if now - self.last_timeout_warn_time > 5.0:
+                self.get_logger().warn('No thruster commands received (timeout) - sending neutral override')
+                self.last_timeout_warn_time = now
             return
 
 
