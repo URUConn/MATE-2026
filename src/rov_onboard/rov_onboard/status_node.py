@@ -40,6 +40,7 @@ class StatusNode(Node):
 
         self.start_time = time.time()
         self.current_armed = False
+        self.commanded_armed = False
         self.current_mode = 'manual'
         self.fcu_connected = False
         timer_period = 1.0 / publish_rate
@@ -58,7 +59,9 @@ class StatusNode(Node):
         self.publisher.publish(msg)
 
     def arm_callback(self, msg: Bool):
-        self.current_armed = bool(msg.data)
+        self.commanded_armed = bool(msg.data)
+        if not self.fcu_connected:
+            self.current_armed = self.commanded_armed
 
     def mode_callback(self, msg: String):
         mode = msg.data.strip().lower()
@@ -68,7 +71,10 @@ class StatusNode(Node):
     def mavros_state_callback(self, msg: State):
         # Prefer FCU truth when available.
         self.fcu_connected = bool(msg.connected)
-        self.current_armed = bool(msg.armed)
+        if self.fcu_connected:
+            self.current_armed = bool(msg.armed)
+        else:
+            self.current_armed = self.commanded_armed
 
     def _read_cpu_temp(self):
         """Read CPU temperature on Linux. Returns 0.0 on failure."""

@@ -67,7 +67,7 @@ class DashboardNode(Node):
         self.last_click_feedback = 'No command sent yet'
         self.pending_arm_state = None
         self.pending_arm_sent_time = 0.0
-        self.pending_arm_retries = 0
+        self.pending_arm_timeout = 2.5
 
         self.declare_parameter('display_rate', 20.0)
         display_rate = float(self.get_parameter('display_rate').value)
@@ -122,7 +122,6 @@ class DashboardNode(Node):
     def publish_arm(self, armed: bool):
         self.publish_arm_gate(armed)
         self.pending_arm_state = armed
-        self.pending_arm_retries = 8
         self.pending_arm_sent_time = time.time()
         self.last_click_feedback = 'Sent ARM command' if armed else 'Sent DISARM command'
 
@@ -156,19 +155,25 @@ class DashboardNode(Node):
         if self.pending_arm_state is None:
             return
 
-        if self.latest_status and self.latest_status.armed == self.pending_arm_state:
-            self.last_click_feedback = f'Arm state confirmed: {self.pending_arm_state}'
+        armed_state = None
+        if self.mavros_connected:
+            armed_state = self.mavros_armed
+        elif self.latest_status:
+            armed_state = self.latest_status.armed
+
+        if armed_state is not None and armed_state == self.pending_arm_state:
+            state_label = 'ARMED' if self.pending_arm_state else 'DISARMED'
+            self.last_click_feedback = f'FCU state confirmed: {state_label}'
             self.pending_arm_state = None
-            self.pending_arm_retries = 0
             return
 
         now = time.time()
-        if self.pending_arm_retries > 0 and (now - self.pending_arm_sent_time) > 0.35:
-            self.publish_arm_gate(self.pending_arm_state)
-            self.pending_arm_sent_time = now
-            self.pending_arm_retries -= 1
-        elif self.pending_arm_retries == 0:
-            self.last_click_feedback = 'Arm command sent, awaiting status confirmation'
+        if (now - self.pending_arm_sent_time) > self.pending_arm_timeout:
+            target_label = 'ARM' if self.pending_arm_state else 'DISARM'
+            self.last_click_feedback = (
+                f'{target_label} command sent; awaiting FCU state change '
+                '(no automatic retries)'
+            )
             self.pending_arm_state = None
 
     def handle_click(self, pos):

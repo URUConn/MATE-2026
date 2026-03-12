@@ -100,6 +100,7 @@ class MavrosBridgeNode(Node):
         self.active_arm_service = None
         self.last_waiting_log_time = 0.0
         self.last_arm_service_warn_time = 0.0
+        self.last_reported_armed = self.armed
 
         # Initial state - all channels to neutral
         self.rc_channels = self._build_neutral_channels()
@@ -116,6 +117,12 @@ class MavrosBridgeNode(Node):
     def arm_callback(self, msg: Bool):
         """Arm or disarm runtime command from control laptop."""
         requested = bool(msg.data)
+        if requested == self.armed:
+            if not requested:
+                # Keep disarm idempotent and safe.
+                self.publish_neutral_override()
+            return
+
         if not requested:
             # CRITICAL: Always gate off immediately on disarm for safety
             # Do NOT wait for MAVROS confirmation - send neutral RC immediately
@@ -188,6 +195,8 @@ class MavrosBridgeNode(Node):
     def mavros_state_callback(self, msg: State, source: str):
         self.connected_namespaces[source] = bool(msg.connected)
         self.fcu_connected = any(self.connected_namespaces.values())
+        previous_armed = self.armed
+        self.armed = bool(msg.armed)
 
         if self.connected_namespaces['uas1']:
             self.active_namespace = 'uas1'
@@ -195,6 +204,11 @@ class MavrosBridgeNode(Node):
             self.active_namespace = 'mavros'
         else:
             self.active_namespace = None
+
+        if previous_armed != self.armed and self.last_reported_armed != self.armed:
+            self.last_reported_armed = self.armed
+            state = 'ARMED' if self.armed else 'DISARMED'
+            self.get_logger().info(f'FCU state update from MAVROS: {state}')
 
     def _on_arm_service_response(self, future, requested: bool):
         try:
