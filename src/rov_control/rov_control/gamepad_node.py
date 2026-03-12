@@ -66,6 +66,7 @@ class GamepadNode(Node):
         self.ui_font = None
         self.input_mode = ''
         self.use_keyboard_fallback = use_keyboard_fallback
+        self._missing_thruster_fields_logged = set()
 
         if not PYGAME_AVAILABLE:
             self.get_logger().error('pygame not installed. Run: pip3 install pygame')
@@ -293,21 +294,47 @@ class GamepadNode(Node):
         msg.thruster_front_right = float(forward - strafe - yaw)
         msg.thruster_back_left = float(forward - strafe + yaw)
         msg.thruster_back_right = float(forward + strafe - yaw)
+
+        fields_to_clamp = [
+            'thruster_front_left',
+            'thruster_front_right',
+            'thruster_back_left',
+            'thruster_back_right',
+        ]
+
         # Vertical thrusters for up/down (all 4 vertical thrusters move together for pure vertical)
-        msg.thruster_vertical_front_left = float(vertical)
-        msg.thruster_vertical_front_right = float(vertical)
-        msg.thruster_vertical_back_left = float(vertical)
-        msg.thruster_vertical_back_right = float(vertical)
+        for canonical_name, legacy_name in [
+            ('thruster_vertical_front_left', 'vertical_front_left'),
+            ('thruster_vertical_front_right', 'vertical_front_right'),
+            ('thruster_vertical_back_left', 'vertical_back_left'),
+            ('thruster_vertical_back_right', 'vertical_back_right'),
+        ]:
+            field_name = self._resolve_thruster_field(msg, canonical_name, legacy_name)
+            if field_name is None:
+                continue
+            setattr(msg, field_name, float(vertical))
+            fields_to_clamp.append(field_name)
 
         # Clamp all values to [-1.0, 1.0]
-        for attr in ['thruster_front_left', 'thruster_front_right',
-                      'thruster_back_left', 'thruster_back_right',
-                      'thruster_vertical_front_left', 'thruster_vertical_front_right',
-                      'thruster_vertical_back_left', 'thruster_vertical_back_right']:
+        for attr in fields_to_clamp:
             val = getattr(msg, attr)
             setattr(msg, attr, max(-1.0, min(1.0, val)))
 
         self.publisher.publish(msg)
+
+    def _resolve_thruster_field(self, msg: ThrusterCommand, canonical_name: str, legacy_name: str):
+        if hasattr(msg, canonical_name):
+            return canonical_name
+        if hasattr(msg, legacy_name):
+            return legacy_name
+
+        key = f'{canonical_name}|{legacy_name}'
+        if key not in self._missing_thruster_fields_logged:
+            self.get_logger().error(
+                f'ThrusterCommand missing expected fields: {canonical_name} or {legacy_name}'
+            )
+            self._missing_thruster_fields_logged.add(key)
+        return None
 
     def destroy_node(self):
         if PYGAME_AVAILABLE:

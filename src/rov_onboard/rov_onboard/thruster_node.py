@@ -77,6 +77,7 @@ class ThrusterNode(Node):
         self.last_command_time = None
         self.last_log_time = 0.0
         self.connected_namespaces = {'mavros': False, 'uas1': False}
+        self._missing_thruster_fields_logged = set()
 
         self.get_logger().info('Thruster node started (disarmed by default)')
         self.get_logger().info('Arm/disarm topic: /rov/arm_cmd (std_msgs/Bool)')
@@ -145,10 +146,10 @@ class ThrusterNode(Node):
         bl = msg.thruster_back_left * self.thrust_scaling
         br = msg.thruster_back_right * self.thrust_scaling
         # Vertical thrusters (4 vertical thrusters)
-        vfl = msg.thruster_vertical_front_left * self.thrust_scaling
-        vfr = msg.thruster_vertical_front_right * self.thrust_scaling
-        vbl = msg.thruster_vertical_back_left * self.thrust_scaling
-        vbr = msg.thruster_vertical_back_right * self.thrust_scaling
+        vfl = self._get_thruster_value(msg, 'thruster_vertical_front_left', 'vertical_front_left') * self.thrust_scaling
+        vfr = self._get_thruster_value(msg, 'thruster_vertical_front_right', 'vertical_front_right') * self.thrust_scaling
+        vbl = self._get_thruster_value(msg, 'thruster_vertical_back_left', 'vertical_back_left') * self.thrust_scaling
+        vbr = self._get_thruster_value(msg, 'thruster_vertical_back_right', 'vertical_back_right') * self.thrust_scaling
 
         # Clamp all values to [-1.0, 1.0] range
         fl = max(-1.0, min(1.0, fl))
@@ -174,6 +175,20 @@ class ThrusterNode(Node):
             f'Actuators - FL:{fl:.2f} FR:{fr:.2f} BL:{bl:.2f} BR:{br:.2f} '
             f'VFL:{vfl:.2f} VFR:{vfr:.2f} VBL:{vbl:.2f} VBR:{vbr:.2f}'
         )
+
+    def _get_thruster_value(self, msg: ThrusterCommand, canonical_name: str, legacy_name: str) -> float:
+        if hasattr(msg, canonical_name):
+            return float(getattr(msg, canonical_name))
+        if hasattr(msg, legacy_name):
+            return float(getattr(msg, legacy_name))
+
+        key = f'{canonical_name}|{legacy_name}'
+        if key not in self._missing_thruster_fields_logged:
+            self.get_logger().error(
+                f'ThrusterCommand missing expected fields: {canonical_name} or {legacy_name}. Using 0.0.'
+            )
+            self._missing_thruster_fields_logged.add(key)
+        return 0.0
 
 
 def main(args=None):

@@ -101,6 +101,7 @@ class MavrosBridgeNode(Node):
         self.active_namespace = None
         self.active_arm_service = None
         self.last_waiting_log_time = 0.0
+        self._missing_thruster_fields_logged = set()
         self.last_arm_service_warn_time = 0.0
         self.last_reported_armed = self.armed
 
@@ -282,10 +283,10 @@ class MavrosBridgeNode(Node):
         br = msg.thruster_back_right * self.thrust_scaling
         
         # Extract vertical thrust values (4 vertical thrusters)
-        vfl = msg.thruster_vertical_front_left * self.thrust_scaling
-        vfr = msg.thruster_vertical_front_right * self.thrust_scaling
-        vbl = msg.thruster_vertical_back_left * self.thrust_scaling
-        vbr = msg.thruster_vertical_back_right * self.thrust_scaling
+        vfl = self._get_thruster_value(msg, 'thruster_vertical_front_left', 'vertical_front_left') * self.thrust_scaling
+        vfr = self._get_thruster_value(msg, 'thruster_vertical_front_right', 'vertical_front_right') * self.thrust_scaling
+        vbl = self._get_thruster_value(msg, 'thruster_vertical_back_left', 'vertical_back_left') * self.thrust_scaling
+        vbr = self._get_thruster_value(msg, 'thruster_vertical_back_right', 'vertical_back_right') * self.thrust_scaling
 
         # Compute directional commands from thruster outputs
         # Roll (Channel 1): Differential between left and right vertical thrusters
@@ -327,6 +328,20 @@ class MavrosBridgeNode(Node):
             f'RC Override - Ch1:{self.rc_channels[0]} Ch2:{self.rc_channels[1]} '
             f'Ch3:{self.rc_channels[2]} Ch4:{self.rc_channels[3]}'
         )
+
+    def _get_thruster_value(self, msg: ThrusterCommand, canonical_name: str, legacy_name: str) -> float:
+        if hasattr(msg, canonical_name):
+            return float(getattr(msg, canonical_name))
+        if hasattr(msg, legacy_name):
+            return float(getattr(msg, legacy_name))
+
+        key = f'{canonical_name}|{legacy_name}'
+        if key not in self._missing_thruster_fields_logged:
+            self.get_logger().error(
+                f'ThrusterCommand missing expected fields: {canonical_name} or {legacy_name}. Using 0.0.'
+            )
+            self._missing_thruster_fields_logged.add(key)
+        return 0.0
 
     def check_connection(self):
         """Check if we're receiving commands and if FCU is connected"""
