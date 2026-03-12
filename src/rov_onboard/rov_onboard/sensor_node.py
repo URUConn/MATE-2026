@@ -5,6 +5,7 @@ Runs on the LattePanda (onboard computer).
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from rov_msgs.msg import SensorData
 from sensor_msgs.msg import Imu, BatteryState
 import math
@@ -18,8 +19,20 @@ class SensorNode(Node):
         publish_rate = self.get_parameter('publish_rate').value
 
         self.publisher = self.create_publisher(SensorData, '/rov/sensor_data', 10)
-        self.imu_sub = self.create_subscription(Imu, '/mavros/imu/data', self.imu_callback, 10)
-        self.battery_sub = self.create_subscription(BatteryState, '/mavros/battery', self.battery_callback, 10)
+        
+        # Use best_effort QoS for MAVROS subscriptions to avoid incompatibility warnings
+        mavros_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10
+        )
+
+        self.imu_sub = self.create_subscription(
+            Imu, '/mavros/imu/data', self.imu_callback, mavros_qos
+        )
+        self.battery_sub = self.create_subscription(
+            BatteryState, '/mavros/battery', self.battery_callback, mavros_qos
+        )
 
         self.heading_deg = 0.0
         self.pitch_deg = 0.0

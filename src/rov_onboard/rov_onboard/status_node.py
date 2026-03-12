@@ -5,6 +5,7 @@ Runs on the LattePanda (onboard computer).
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from rov_msgs.msg import RovStatus
 from std_msgs.msg import Bool, String
 from mavros_msgs.msg import State
@@ -21,7 +22,21 @@ class StatusNode(Node):
         self.publisher = self.create_publisher(RovStatus, '/rov/status', 10)
         self.arm_sub = self.create_subscription(Bool, '/rov/arm_cmd', self.arm_callback, 10)
         self.input_mode_sub = self.create_subscription(String, '/rov/input_mode_state', self.mode_callback, 10)
-        self.mavros_state_sub = self.create_subscription(State, '/mavros/state', self.mavros_state_callback, 10)
+        
+        # Use best_effort QoS for MAVROS subscriptions to avoid incompatibility warnings
+        mavros_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=5
+        )
+        
+        # Subscribe to both namespaces to handle different MAVROS configurations
+        self.mavros_state_sub = self.create_subscription(
+            State, '/mavros/state', self.mavros_state_callback, mavros_qos
+        )
+        self.mavros_state_sub_uas1 = self.create_subscription(
+            State, '/uas1/mavros/state', self.mavros_state_callback, mavros_qos
+        )
 
         self.start_time = time.time()
         self.current_armed = False

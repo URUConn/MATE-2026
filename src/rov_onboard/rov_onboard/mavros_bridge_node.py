@@ -305,12 +305,13 @@ class MavrosBridgeNode(Node):
         now = time.time()
 
         if not self.fcu_connected:
-            if now - self.last_waiting_log_time > 10.0:
+            if now - self.last_waiting_log_time > 15.0:
                 self.get_logger().info('Waiting for FCU connection from MAVROS state...')
                 self.last_waiting_log_time = now
+            return
 
         if self.last_command_time is None:
-            if self.fcu_connected and now - self.last_waiting_log_time > 10.0:
+            if now - self.last_waiting_log_time > 15.0:
                 self.get_logger().info('FCU connected, waiting for thruster commands on /rov/thruster_command...')
                 self.last_waiting_log_time = now
             return
@@ -321,7 +322,10 @@ class MavrosBridgeNode(Node):
             # No commands received recently - send neutral commands to prevent drift
             if self.armed:
                 self.publish_neutral_override()
-            self.get_logger().warn('No thruster commands received (timeout)')
+            now = time.time()
+            if now - self.last_waiting_log_time > 5.0:
+                self.get_logger().warn('No thruster commands received (timeout)')
+                self.last_waiting_log_time = now
             return
 
 

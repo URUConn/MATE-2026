@@ -1,11 +1,15 @@
 /**:
   ros__parameters:
+    # Camera configuration
     camera_index: 0
-    frame_width: 1280
-    frame_height: 720
-    fps: 60
+    frame_width: 640        # Lower resolution for better performance on limited bandwidth
+    frame_height: 480
+    fps: 30                 # Reduced from 60 for better network performance
     publish_compressed: true
-    jpeg_quality: 20
+    jpeg_quality: 50
+    use_gstreamer: false    # Set to true if GStreamer is available
+    fallback_on_error: true # Allow ROV to operate without camera
+
     armed: false
     publish_rate: 10.0
 
