@@ -7,6 +7,7 @@ Placeholder: replace serial/PWM logic with your actual motor driver code.
 import rclpy
 from rclpy.node import Node
 from rov_msgs.msg import ThrusterCommand
+from std_msgs.msg import Bool
 
 
 class ThrusterNode(Node):
@@ -22,8 +23,23 @@ class ThrusterNode(Node):
             self.thruster_callback,
             10
         )
+        self.arm_sub = self.create_subscription(
+            Bool,
+            '/rov/arm_cmd',
+            self.arm_callback,
+            10
+        )
 
         self.get_logger().info('Thruster node started (disarmed by default)')
+        self.get_logger().info('Arm/disarm topic: /rov/arm_cmd (std_msgs/Bool)')
+
+    def arm_callback(self, msg: Bool):
+        requested = bool(msg.data)
+        if requested == self.armed:
+            return
+        self.armed = requested
+        state = 'ARMED' if self.armed else 'DISARMED'
+        self.get_logger().warn(f'Runtime arm state changed: {state}')
 
     def thruster_callback(self, msg):
         if not self.armed:

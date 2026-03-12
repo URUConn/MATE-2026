@@ -309,6 +309,32 @@ If you do not see the keyboard window, check the gamepad node logs for `Detected
 
 Once everything is running and tested:
 
+### Arm/Disarm from Control Laptop (runtime)
+
+```bash
+# Software arm gate in onboard nodes (enables thruster command processing)
+ros2 topic pub --once /rov/arm_cmd std_msgs/msg/Bool "{data: true}"
+
+# Arm flight controller via MAVROS
+ros2 service call /mavros/cmd/arming mavros_msgs/srv/CommandBool "{value: true}"
+```
+
+To disarm:
+
+```bash
+# Stop flight controller outputs
+ros2 service call /mavros/cmd/arming mavros_msgs/srv/CommandBool "{value: false}"
+
+# Disable software arm gate
+ros2 topic pub --once /rov/arm_cmd std_msgs/msg/Bool "{data: false}"
+```
+
+Verify state:
+
+```bash
+ros2 topic echo /mavros/state
+```
+
 1. **QGroundControl**: Disarm safety by selecting **"Disarmed"** in the flight mode dropdown
 2. **Update config**: Set `armed: true` in `onboard_params.yaml`
 3. **Rebuild & relaunch**:

@@ -12,6 +12,7 @@ import rclpy
 from rclpy.node import Node
 from rov_msgs.msg import ThrusterCommand
 from mavros_msgs.msg import OverrideRCIn
+from std_msgs.msg import Bool
 import threading
 import time
 
@@ -59,6 +60,12 @@ class MavrosBridgeNode(Node):
             self.thruster_callback,
             10
         )
+        self.arm_sub = self.create_subscription(
+            Bool,
+            '/rov/arm_cmd',
+            self.arm_callback,
+            10
+        )
 
         # State tracking
         self.last_command_time = None
@@ -81,7 +88,35 @@ class MavrosBridgeNode(Node):
         self.get_logger().info('MAVROS Bridge Node initialized')
         self.get_logger().info(f'FCU Port: {self.fcu_port} @ {self.fcu_baud} baud')
         self.get_logger().info(f'Armed: {self.armed}')
+        self.get_logger().info('Arm/disarm topic: /rov/arm_cmd (std_msgs/Bool)')
         self.get_logger().info('Waiting for thruster commands...')
+
+    def arm_callback(self, msg: Bool):
+        """Arm or disarm runtime command from control laptop."""
+        requested = bool(msg.data)
+        if requested == self.armed:
+            return
+
+        self.armed = requested
+        state = 'ARMED' if self.armed else 'DISARMED'
+        self.get_logger().warn(f'Runtime arm state changed: {state}')
+
+        if not self.armed:
+            self.publish_neutral_override()
+
+    def publish_neutral_override(self):
+        """Send neutral RC values immediately when disarmed or timed out."""
+        self.rc_channels = [
+            self.rc_center_pwm,
+            self.rc_center_pwm,
+            self.rc_center_pwm,
+            self.rc_center_pwm,
+            1100,
+            self.rc_center_pwm,
+        ]
+        rc_msg = OverrideRCIn()
+        rc_msg.channels = self.rc_channels
+        self.rc_override_pub.publish(rc_msg)
 
     def thruster_callback(self, msg: ThrusterCommand):
         """
@@ -161,10 +196,7 @@ class MavrosBridgeNode(Node):
         if time_since_last_command > self.connection_timeout:
             # No commands received recently - send neutral commands to prevent drift
             if self.armed:
-                self.rc_channels = [self.rc_center_pwm] * 5 + [self.rc_center_pwm]
-                rc_msg = OverrideRCIn()
-                rc_msg.channels = self.rc_channels
-                self.rc_override_pub.publish(rc_msg)
+                self.publish_neutral_override()
             self.fcu_connected = False
             self.get_logger().warn('No thruster commands received (timeout)')
             return
