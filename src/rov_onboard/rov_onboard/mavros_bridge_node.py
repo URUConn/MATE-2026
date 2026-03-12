@@ -14,7 +14,6 @@ from rov_msgs.msg import ThrusterCommand
 from mavros_msgs.msg import OverrideRCIn
 from mavros_msgs.srv import CommandBool
 from std_msgs.msg import Bool
-import threading
 import time
 
 
@@ -32,6 +31,9 @@ class MavrosBridgeNode(Node):
     
     This node converts normalized thruster values (-1.0 to 1.0) to RC PWM values (1000-2000 µs).
     """
+
+    RC_CHANNEL_COUNT = 18
+    RC_NO_CHANGE = 65535
 
     def __init__(self):
         super().__init__('mavros_bridge_node')
@@ -75,14 +77,7 @@ class MavrosBridgeNode(Node):
         self.fcu_connected = False
 
         # Initial state - all channels to neutral
-        self.rc_channels = [
-            self.rc_center_pwm,  # Channel 1 - Roll
-            self.rc_center_pwm,  # Channel 2 - Pitch
-            self.rc_center_pwm,  # Channel 3 - Throttle (vertical)
-            self.rc_center_pwm,  # Channel 4 - Yaw
-            1100,                 # Channel 5 - Manual control (1100 = manual mode)
-            self.rc_center_pwm,  # Channel 6 - Custom
-        ]
+        self.rc_channels = self._build_neutral_channels()
 
         # Check connection status periodically
         self.create_timer(1.0, self.check_connection)
@@ -102,6 +97,7 @@ class MavrosBridgeNode(Node):
                 self.get_logger().warn('Runtime arm state changed: DISARMED')
             self.armed = False
             self.publish_neutral_override()
+            return
 
         if not self.arm_client.service_is_ready():
             self.get_logger().warn('MAVROS arming service not ready: /mavros/cmd/arming')
@@ -136,14 +132,23 @@ class MavrosBridgeNode(Node):
 
     def publish_neutral_override(self):
         """Send neutral RC values immediately when disarmed or timed out."""
-        self.rc_channels = [
-            self.rc_center_pwm,
-            self.rc_center_pwm,
-            self.rc_center_pwm,
-            self.rc_center_pwm,
-            1100,
-            self.rc_center_pwm,
-        ]
+        self.rc_channels = self._build_neutral_channels()
+        self.publish_rc_override()
+
+    def _build_neutral_channels(self):
+        channels = [self.RC_NO_CHANGE] * self.RC_CHANNEL_COUNT
+        channels[0] = self.rc_center_pwm
+        channels[1] = self.rc_center_pwm
+        channels[2] = self.rc_center_pwm
+        channels[3] = self.rc_center_pwm
+        channels[4] = 1100
+        channels[5] = self.rc_center_pwm
+        return channels
+
+    def publish_rc_override(self):
+        if len(self.rc_channels) != self.RC_CHANNEL_COUNT:
+            self.get_logger().error('RC override channel array invalid; resetting to neutral.')
+            self.rc_channels = self._build_neutral_channels()
         rc_msg = OverrideRCIn()
         rc_msg.channels = self.rc_channels
         self.rc_override_pub.publish(rc_msg)
@@ -203,9 +208,7 @@ class MavrosBridgeNode(Node):
             self.rc_channels[i] = max(self.rc_min_pwm, min(self.rc_max_pwm, self.rc_channels[i]))
 
         # Publish RC override
-        rc_msg = OverrideRCIn()
-        rc_msg.channels = self.rc_channels
-        self.rc_override_pub.publish(rc_msg)
+        self.publish_rc_override()
 
         # Log at debug level to reduce spam
         self.get_logger().debug(
