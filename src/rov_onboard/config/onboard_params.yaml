@@ -17,7 +17,7 @@
         
         # PIX6 serial port (check with: ls /dev/ttyACM* or /dev/ttyUSB*)
         # Common values: /dev/ttyACM0, /dev/ttyUSB0
-        fcu_port: "/dev/ttyACM0"
+        fcu_port: "/dev/ttyACM1"
         
         # Serial baud rate (must match PIX6 configuration)
         fcu_baud: 115200
