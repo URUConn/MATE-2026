@@ -12,6 +12,7 @@ Note: Requires MAVROS2 to be installed and the PIX6 connected via USB.
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from rov_msgs.msg import ThrusterCommand
 from mavros_msgs.msg import OverrideRCIn
 from mavros_msgs.msg import State
@@ -29,8 +30,8 @@ class MavrosBridgeNode(Node):
     - Channel 2: Pitch (1000-2000 µs)
     - Channel 3: Throttle/Vertical (1000-2000 µs)
     - Channel 4: Yaw (1000-2000 µs)
-    - Channel 5: Manual Control (1100 = manual, 1000 = failsafe)
-    - Channel 6: Mode Selection or custom function
+    - Channel 5: Forward (surge)
+    - Channel 6: Lateral (strafe)
     
     This node converts normalized thruster values (-1.0 to 1.0) to RC PWM values (1000-2000 µs).
     """
@@ -59,7 +60,10 @@ class MavrosBridgeNode(Node):
         self.rc_center_pwm = self.get_parameter('rc_center_pwm').value
 
         # Publishers and subscribers
-        self.rc_override_pub = self.create_publisher(OverrideRCIn, '/mavros/rc/override', 10)
+        self.rc_override_publishers = {
+            'mavros': self.create_publisher(OverrideRCIn, '/mavros/rc/override', 10),
+            'uas1': self.create_publisher(OverrideRCIn, '/uas1/mavros/rc/override', 10),
+        }
         self.thruster_sub = self.create_subscription(
             ThrusterCommand,
             '/rov/thruster_command',
@@ -72,17 +76,22 @@ class MavrosBridgeNode(Node):
             self.arm_callback,
             10
         )
+        mavros_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=5,
+        )
         self.mavros_state_sub = self.create_subscription(
             State,
             '/mavros/state',
             lambda msg: self.mavros_state_callback(msg, 'mavros'),
-            10,
+            mavros_qos,
         )
         self.mavros_state_sub_uas1 = self.create_subscription(
             State,
             '/uas1/mavros/state',
             lambda msg: self.mavros_state_callback(msg, 'uas1'),
-            10,
+            mavros_qos,
         )
         self.arm_clients = {
             '/mavros/cmd/arming': self.create_client(CommandBool, '/mavros/cmd/arming'),
@@ -242,7 +251,7 @@ class MavrosBridgeNode(Node):
         channels[1] = self.rc_center_pwm
         channels[2] = self.rc_center_pwm
         channels[3] = self.rc_center_pwm
-        channels[4] = 1100
+        channels[4] = self.rc_center_pwm
         channels[5] = self.rc_center_pwm
         return channels
 
@@ -252,7 +261,18 @@ class MavrosBridgeNode(Node):
             self.rc_channels = self._build_neutral_channels()
         rc_msg = OverrideRCIn()
         rc_msg.channels = self.rc_channels
-        self.rc_override_pub.publish(rc_msg)
+
+        # Publish to active namespace first; also mirror to the other namespace to
+        # tolerate MAVROS naming differences across deployments.
+        if self.active_namespace in self.rc_override_publishers:
+            self.rc_override_publishers[self.active_namespace].publish(rc_msg)
+            for name, pub in self.rc_override_publishers.items():
+                if name != self.active_namespace:
+                    pub.publish(rc_msg)
+            return
+
+        for pub in self.rc_override_publishers.values():
+            pub.publish(rc_msg)
 
     def thruster_callback(self, msg: ThrusterCommand):
         """
@@ -273,10 +293,10 @@ class MavrosBridgeNode(Node):
         self.last_command_time = time.time()
 
         # Extract horizontal thrust values (normalized -1.0 to 1.0)
-        fl = msg.thruster_front_left * self.thrust_scaling
-        fr = msg.thruster_front_right * self.thrust_scaling
-        bl = msg.thruster_back_left * self.thrust_scaling
-        br = msg.thruster_back_right * self.thrust_scaling
+        fl = self._get_thruster_value(msg, 'thruster_front_left', 'front_left') * self.thrust_scaling
+        fr = self._get_thruster_value(msg, 'thruster_front_right', 'front_right') * self.thrust_scaling
+        bl = self._get_thruster_value(msg, 'thruster_back_left', 'back_left') * self.thrust_scaling
+        br = self._get_thruster_value(msg, 'thruster_back_right', 'back_right') * self.thrust_scaling
         
         # Extract vertical thrust values (4 vertical thrusters)
         vfl = self._get_thruster_value(msg, 'thruster_vertical_front_left', 'vertical_front_left') * self.thrust_scaling
@@ -284,24 +304,27 @@ class MavrosBridgeNode(Node):
         vbl = self._get_thruster_value(msg, 'thruster_vertical_back_left', 'vertical_back_left') * self.thrust_scaling
         vbr = self._get_thruster_value(msg, 'thruster_vertical_back_right', 'vertical_back_right') * self.thrust_scaling
 
-        # Compute directional commands from thruster outputs
-        # Roll (Channel 1): Differential between left and right vertical thrusters
-        roll = ((vfl + vbl) - (vfr + vbr)) / 2.0
-        
-        # Pitch (Channel 2): Differential between front and back vertical thrusters
-        pitch = ((vfl + vfr) - (vbl + vbr)) / 2.0
-        
-        # Throttle/Vertical (Channel 3): Average of all vertical thrusters
+        # Recover motion axes from 8-thruster mixed command.
+        # Publisher mix: fl=f+s+y fr=f-s-y bl=f-s+y br=f+s-y
+        forward = (fl + fr + bl + br) / 4.0
+        lateral = (fl - fr - bl + br) / 4.0
+        yaw = (fl - fr + bl - br) / 4.0
+
+        # Vertical channel comes from average of the 4 vertical thrusters.
         throttle = (vfl + vfr + vbl + vbr) / 4.0
-        
-        # Yaw (Channel 4): Differential from horizontal thrusters
-        yaw = ((fl + br) - (fr + bl)) / 2.0
+
+        # Keep roll/pitch neutral unless vertical thrusters are intentionally
+        # used with differential values.
+        roll = ((vfl + vbl) - (vfr + vbr)) / 2.0
+        pitch = ((vfl + vfr) - (vbl + vbr)) / 2.0
 
         # Clamp values to [-1.0, 1.0]
         roll = max(-1.0, min(1.0, roll))
         pitch = max(-1.0, min(1.0, pitch))
         throttle = max(-1.0, min(1.0, throttle))
         yaw = max(-1.0, min(1.0, yaw))
+        forward = max(-1.0, min(1.0, forward))
+        lateral = max(-1.0, min(1.0, lateral))
 
         # Convert normalized values (-1.0 to 1.0) to RC PWM values (1000-2000 µs)
         # Center is 1500, min is 1000, max is 2000
@@ -309,8 +332,8 @@ class MavrosBridgeNode(Node):
         self.rc_channels[1] = int(self.rc_center_pwm + (pitch * (self.rc_max_pwm - self.rc_center_pwm)))
         self.rc_channels[2] = int(self.rc_center_pwm + (throttle * (self.rc_max_pwm - self.rc_center_pwm)))
         self.rc_channels[3] = int(self.rc_center_pwm + (yaw * (self.rc_max_pwm - self.rc_center_pwm)))
-        self.rc_channels[4] = 1100  # Channel 5: Manual control
-        self.rc_channels[5] = self.rc_center_pwm  # Channel 6: Custom
+        self.rc_channels[4] = int(self.rc_center_pwm + (forward * (self.rc_max_pwm - self.rc_center_pwm)))
+        self.rc_channels[5] = int(self.rc_center_pwm + (lateral * (self.rc_max_pwm - self.rc_center_pwm)))
 
         # Clamp to valid PWM range
         for i in range(6):
@@ -322,7 +345,8 @@ class MavrosBridgeNode(Node):
         # Log at debug level to reduce spam
         self.get_logger().debug(
             f'RC Override - Ch1:{self.rc_channels[0]} Ch2:{self.rc_channels[1]} '
-            f'Ch3:{self.rc_channels[2]} Ch4:{self.rc_channels[3]}'
+            f'Ch3:{self.rc_channels[2]} Ch4:{self.rc_channels[3]} '
+            f'Ch5:{self.rc_channels[4]} Ch6:{self.rc_channels[5]}'
         )
 
     def _get_thruster_value(self, msg: ThrusterCommand, canonical_name: str, legacy_name: str) -> float:
