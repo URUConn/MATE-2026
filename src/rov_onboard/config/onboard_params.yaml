@@ -4,10 +4,10 @@
     camera_index: 0
     frame_width: 640        # Lower resolution for better performance on limited bandwidth
     frame_height: 480
-    fps: 30                 # Reduced from 60 for better network performance
+    fps: 60                 # Reduced from 60 for better network performance
     publish_compressed: true
     jpeg_quality: 50
-    use_gstreamer: false    # Set to true if GStreamer is available
+    use_gstreamer: true    # Set to true if GStreamer is available
     fallback_on_error: true # Allow ROV to operate without camera
 
     armed: false
@@ -17,7 +17,7 @@
     mavros_bridge_node:
       ros__parameters:
         # Set to true ONLY after hardware is fully configured and tested
-        armed: false
+        armed: true
         
         # PIX6 serial port (check with: ls /dev/ttyACM* or /dev/ttyUSB*)
         # Common values: /dev/ttyACM0, /dev/ttyUSB0
