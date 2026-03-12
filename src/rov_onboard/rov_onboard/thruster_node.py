@@ -107,11 +107,13 @@ class ThrusterNode(Node):
             return
         self.armed = requested
         state = 'ARMED' if self.armed else 'DISARMED'
-        self.get_logger().warn(f'Thruster state changed: {state}')
+        self.get_logger().info(f'Thruster state changed: {state}')
 
+        # Always send neutral command when disarmed for safety
+        # This is critical to stop all motor movement immediately
         if not self.armed:
-            # Send neutral command when disarmed for safety
             self.publish_neutral_actuators()
+            self.get_logger().warn('DISARM: Sending neutral actuators command')
 
     def publish_neutral_actuators(self):
         """Send neutral (zero thrust) actuator command."""

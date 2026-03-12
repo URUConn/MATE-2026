@@ -117,11 +117,15 @@ class MavrosBridgeNode(Node):
         """Arm or disarm runtime command from control laptop."""
         requested = bool(msg.data)
         if not requested:
-            # Always gate off immediately on disarm for safety.
-            if self.armed:
-                self.get_logger().warn('Runtime arm state changed: DISARMED')
+            # CRITICAL: Always gate off immediately on disarm for safety
+            # Do NOT wait for MAVROS confirmation - send neutral RC immediately
+            was_armed = self.armed
             self.armed = False
-            self.publish_neutral_override()
+            self.publish_neutral_override()  # Send neutral RC commands
+            if was_armed:
+                self.get_logger().warn('DISARM COMMAND RECEIVED: Sending neutral RC override immediately')
+            else:
+                self.get_logger().info('Disarm command received (was already disarmed)')
             return
 
         arm_client = self._get_ready_arm_client()
