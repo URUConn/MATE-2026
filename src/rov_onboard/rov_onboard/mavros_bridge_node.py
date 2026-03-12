@@ -120,10 +120,7 @@ class MavrosBridgeNode(Node):
     def arm_callback(self, msg: Bool):
         """Arm or disarm runtime command from control laptop."""
         requested = bool(msg.data)
-        if requested == self.armed:
-            if not requested:
-                # Keep disarm idempotent and safe.
-                self.publish_neutral_override()
+        if requested and requested == self.armed:
             return
 
         if not requested:
@@ -136,14 +133,13 @@ class MavrosBridgeNode(Node):
                 self.get_logger().warn('DISARM COMMAND RECEIVED: Sending neutral RC override immediately')
             else:
                 self.get_logger().info('Disarm command received (was already disarmed)')
-            return
 
         arm_client = self._get_ready_arm_client()
         if arm_client is None:
             now = time.time()
             if now - self.last_arm_service_warn_time > 2.0:
                 self.get_logger().warn(
-                    'MAVROS arming service not ready: '
+                    f'MAVROS {"arming" if requested else "disarming"} service not ready: '
                     'tried /mavros/cmd/arming, /mavros/mavros/arming, /cmd/arming, '
                     '/uas1/mavros/cmd/arming, /uas1/mavros/arming, /uas1/cmd/arming'
                 )
