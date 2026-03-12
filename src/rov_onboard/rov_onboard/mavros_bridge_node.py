@@ -107,6 +107,7 @@ class MavrosBridgeNode(Node):
         self.connection_timeout = 5.0  # seconds
         self.fcu_connected = False
         self.connected_namespaces = {'mavros': False, 'uas1': False}
+        self.armed_namespaces = {'mavros': False, 'uas1': False}
         self.active_namespace = None
         self.active_arm_service = None
         self.last_waiting_log_time = 0.0
@@ -202,9 +203,10 @@ class MavrosBridgeNode(Node):
 
     def mavros_state_callback(self, msg: State, source: str):
         self.connected_namespaces[source] = bool(msg.connected)
+        if bool(msg.connected):
+            self.armed_namespaces[source] = bool(msg.armed)
+
         self.fcu_connected = any(self.connected_namespaces.values())
-        previous_armed = self.armed
-        self.armed = bool(msg.armed)
 
         if self.connected_namespaces['uas1']:
             self.active_namespace = 'uas1'
@@ -212,6 +214,12 @@ class MavrosBridgeNode(Node):
             self.active_namespace = 'mavros'
         else:
             self.active_namespace = None
+
+        previous_armed = self.armed
+        if self.active_namespace is not None:
+            self.armed = bool(self.armed_namespaces[self.active_namespace])
+        else:
+            self.armed = False
 
         if previous_armed != self.armed and self.last_reported_armed != self.armed:
             self.last_reported_armed = self.armed
