@@ -51,9 +51,19 @@ def generate_launch_description():
             )
         )
     else:
-        actions.append(
-            LogInfo(msg='MAVROS launch file not found in /opt/ros/humble/share/mavros/launch. Install ros-humble-mavros.')
-        )
+        actions.extend([
+            LogInfo(msg='MAVROS launch file not found; starting mavros_node directly.'),
+            Node(
+                package='mavros',
+                executable='mavros_node',
+                name='mavros',
+                output='screen',
+                parameters=[{
+                    'fcu_url': LaunchConfiguration('fcu_url'),
+                    'gcs_url': LaunchConfiguration('gcs_url'),
+                }],
+            ),
+        ])
 
     actions.extend([
         Node(

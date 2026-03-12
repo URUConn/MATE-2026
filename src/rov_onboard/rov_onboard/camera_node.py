@@ -38,15 +38,15 @@ class CameraNode(Node):
             f"jpegdec ! videoconvert ! "
             f"appsink sync=false max-buffers=1 drop=true"
         )
-
+        
         # Initialize camera using GStreamer backend
         self.cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
 
         if not self.cap.isOpened():
             self.get_logger().error(f'Failed to open camera with GStreamer on /dev/video{camera_index}')
             raise RuntimeError(f'Cannot open camera {camera_index}')
-
-        # (Note: You do not need the .set() commands for width/height/fps when using GStreamer
+            
+        # (Note: You do not need the .set() commands for width/height/fps when using GStreamer 
         # because the pipeline string handles the negotiation automatically.)
 
         if not self.cap.isOpened():
