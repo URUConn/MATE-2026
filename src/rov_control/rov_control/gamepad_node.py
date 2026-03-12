@@ -19,12 +19,13 @@ Keyboard Fallback (if no controller):
 import rclpy
 from rclpy.node import Node
 from rov_msgs.msg import ThrusterCommand
-import sys
+from std_msgs.msg import String
 
 try:
     import pygame
     PYGAME_AVAILABLE = True
 except ImportError:
+    pygame = None
     PYGAME_AVAILABLE = False
 
 
@@ -45,6 +46,13 @@ class GamepadNode(Node):
         force_keyboard_mode = self.get_parameter('force_keyboard_mode').value
 
         self.publisher = self.create_publisher(ThrusterCommand, '/rov/thruster_command', 10)
+        self.input_mode_pub = self.create_publisher(String, '/rov/input_mode_state', 10)
+        self.input_mode_sub = self.create_subscription(
+            String,
+            '/rov/input_mode_cmd',
+            self.input_mode_callback,
+            10,
+        )
 
         # Keyboard state tracking
         self.keyboard_forward = 0.0
@@ -53,8 +61,11 @@ class GamepadNode(Node):
         self.keyboard_vertical = 0.0
         self.use_keyboard = False
         self.joystick = None
+        self.joystick_count = 0
         self.keyboard_window = None
         self.ui_font = None
+        self.input_mode = ''
+        self.use_keyboard_fallback = use_keyboard_fallback
 
         if not PYGAME_AVAILABLE:
             self.get_logger().error('pygame not installed. Run: pip3 install pygame')
@@ -64,34 +75,86 @@ class GamepadNode(Node):
         pygame.joystick.init()
         pygame.font.init()
 
-        joystick_count = pygame.joystick.get_count()
-        self.get_logger().info(f'Detected joystick count: {joystick_count}')
+        self.joystick_count = pygame.joystick.get_count()
+        self.get_logger().info(f'Detected joystick count: {self.joystick_count}')
 
-        if joystick_count > 0 and not force_keyboard_mode:
+        if self.joystick_count > 0 and not force_keyboard_mode:
             self.joystick = pygame.joystick.Joystick(0)
             self.joystick.init()
-            self.get_logger().info(f'✓ Gamepad connected: {self.joystick.get_name()}')
-            self.use_keyboard = False
+            self.get_logger().info(f'Gamepad connected: {self.joystick.get_name()}')
+            self.set_input_mode('xbox', reason='startup')
         else:
             if use_keyboard_fallback:
-                self.get_logger().warn('No gamepad detected. Using keyboard fallback.')
+                self.get_logger().warn('No usable gamepad detected. Using keyboard fallback.')
                 self.get_logger().info('Keyboard Controls: W/A/S/D (move), Arrow Keys (vertical/yaw), Space (stop)')
-                if force_keyboard_mode and joystick_count > 0:
+                if force_keyboard_mode and self.joystick_count > 0:
                     self.get_logger().warn('force_keyboard_mode=true, ignoring detected joystick(s).')
-                self.use_keyboard = True
-                # pygame only reports keyboard state for the focused window.
-                self.keyboard_window = pygame.display.set_mode((620, 220))
-                pygame.display.set_caption('ROV Keyboard Control - Click to focus')
-                self.ui_font = pygame.font.SysFont(None, 24)
-                # Enable key repeat for smooth movement
-                pygame.key.set_repeat(50, 50)
-                self.get_logger().info('Click the pygame window to focus keyboard input.')
+                self.set_input_mode('keyboard', reason='startup')
             else:
                 self.get_logger().error('No gamepad detected and keyboard fallback disabled.')
                 return
 
         timer_period = 1.0 / publish_rate
         self.timer = self.create_timer(timer_period, self.read_input)
+        self.mode_timer = self.create_timer(1.0, self.publish_input_mode_state)
+
+    def input_mode_callback(self, msg: String):
+        requested = msg.data.strip().lower()
+        if requested not in ('keyboard', 'xbox'):
+            self.get_logger().warn(f'Ignoring invalid input mode command: {msg.data}')
+            return
+        self.set_input_mode(requested, reason='operator command')
+
+    def set_input_mode(self, mode: str, reason: str = ''):
+        if mode == 'xbox':
+            if not self.joystick or not self.joystick.get_init():
+                if self.joystick_count > 0:
+                    self.joystick = pygame.joystick.Joystick(0)
+                    self.joystick.init()
+                else:
+                    if self.use_keyboard_fallback:
+                        self.get_logger().warn('Xbox mode requested but no joystick is detected; staying in keyboard mode.')
+                        mode = 'keyboard'
+                    else:
+                        self.get_logger().warn('Xbox mode requested but no joystick is detected.')
+                        return
+
+        if mode == self.input_mode:
+            return
+
+        self.input_mode = mode
+        self.use_keyboard = (mode == 'keyboard')
+
+        if self.use_keyboard:
+            self.open_keyboard_window()
+        else:
+            self.close_keyboard_window()
+
+        reason_suffix = f' ({reason})' if reason else ''
+        self.get_logger().info(f'Input mode set to {self.input_mode}{reason_suffix}')
+        self.publish_input_mode_state()
+
+    def open_keyboard_window(self):
+        # pygame only reports keyboard state for the focused window.
+        if self.keyboard_window is None:
+            if not pygame.display.get_init():
+                pygame.display.init()
+            self.keyboard_window = pygame.display.set_mode((620, 220))
+            pygame.display.set_caption('ROV Keyboard Control - Click to focus')
+            self.ui_font = pygame.font.SysFont(None, 24)
+            self.get_logger().info('Click the pygame window to focus keyboard input.')
+        pygame.key.set_repeat(50, 50)
+
+    def close_keyboard_window(self):
+        if self.keyboard_window is not None:
+            pygame.display.quit()
+            self.keyboard_window = None
+            self.ui_font = None
+
+    def publish_input_mode_state(self):
+        msg = String()
+        msg.data = self.input_mode
+        self.input_mode_pub.publish(msg)
 
     def apply_deadzone(self, value):
         if abs(value) < self.deadzone:
@@ -139,6 +202,10 @@ class GamepadNode(Node):
     def read_gamepad(self):
         """Read Xbox controller input"""
         if not self.joystick:
+            self.keyboard_forward = 0.0
+            self.keyboard_strafe = 0.0
+            self.keyboard_yaw = 0.0
+            self.keyboard_vertical = 0.0
             return
 
         pygame.event.pump()

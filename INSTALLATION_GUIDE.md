@@ -257,8 +257,12 @@ Expected output:
 [control_launch.py] Starting control nodes...
 [gamepad_node-1] Gamepad connected: Xbox 360 Controller
 [camera_viewer_node-2] Waiting for camera feed...
-[dashboard_node-3] Dashboard started
+[dashboard_node-3] Dashboard UI started
 ```
+
+You should see a window titled **ROV Central Control Dashboard** with buttons for:
+- **ARM** / **DISARM**
+- **Keyboard** / **Xbox** input mode
 
 ---
 
@@ -308,6 +312,8 @@ If you do not see the keyboard window, check the gamepad node logs for `Detected
 ## STEP 11: Arming the ROV
 
 Once everything is running and tested:
+
+Preferred method: click **ARM** / **DISARM** in the central dashboard UI.
 
 ### Arm/Disarm from Control Laptop (runtime)
 

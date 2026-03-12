@@ -7,7 +7,7 @@
     # Force keyboard mode for testing without a controller.
     # Set this to false when using a real Xbox controller.
     force_keyboard_mode: true
-    display_rate: 2.0
+    display_rate: 20.0
     
     # Gamepad node parameters
     gamepad_node:

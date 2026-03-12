@@ -6,6 +6,7 @@ Runs on the LattePanda (onboard computer).
 import rclpy
 from rclpy.node import Node
 from rov_msgs.msg import RovStatus
+from std_msgs.msg import Bool, String
 import time
 
 
@@ -17,8 +18,12 @@ class StatusNode(Node):
         publish_rate = self.get_parameter('publish_rate').value
 
         self.publisher = self.create_publisher(RovStatus, '/rov/status', 10)
+        self.arm_sub = self.create_subscription(Bool, '/rov/arm_cmd', self.arm_callback, 10)
+        self.input_mode_sub = self.create_subscription(String, '/rov/input_mode_state', self.mode_callback, 10)
 
         self.start_time = time.time()
+        self.current_armed = False
+        self.current_mode = 'manual'
         timer_period = 1.0 / publish_rate
         self.timer = self.create_timer(timer_period, self.publish_status)
 
@@ -26,13 +31,21 @@ class StatusNode(Node):
 
     def publish_status(self):
         msg = RovStatus()
-        msg.armed = False
+        msg.armed = self.current_armed
         msg.leak_detected = False
-        msg.mode = 'manual'
+        msg.mode = self.current_mode
         msg.cpu_temperature = self._read_cpu_temp()
         msg.uptime_seconds = float(time.time() - self.start_time)
 
         self.publisher.publish(msg)
+
+    def arm_callback(self, msg: Bool):
+        self.current_armed = bool(msg.data)
+
+    def mode_callback(self, msg: String):
+        mode = msg.data.strip().lower()
+        if mode in ('keyboard', 'xbox'):
+            self.current_mode = mode
 
     def _read_cpu_temp(self):
         """Read CPU temperature on Linux. Returns 0.0 on failure."""
