@@ -120,6 +120,10 @@ class GamepadNode(Node):
                         return
 
         if mode == self.input_mode:
+            if mode == 'keyboard':
+                # Re-open window if user closed it or switched focus away.
+                self.open_keyboard_window()
+                self.publish_input_mode_state()
             return
 
         self.input_mode = mode
@@ -236,7 +240,10 @@ class GamepadNode(Node):
         # Process all queued events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                raise KeyboardInterrupt()
+                # Closing the keyboard window should not kill the node.
+                self.close_keyboard_window()
+                self.open_keyboard_window()
+                return
 
         # Get currently pressed keys
         keys = pygame.key.get_pressed()

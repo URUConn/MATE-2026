@@ -4,6 +4,14 @@ import rclpy
 from rclpy.node import Node
 from rov_msgs.msg import SensorData, RovStatus
 from std_msgs.msg import Bool, String
+import time
+
+try:
+    from mavros_msgs.srv import CommandBool
+    MAVROS_SERVICE_AVAILABLE = True
+except ImportError:
+    CommandBool = None
+    MAVROS_SERVICE_AVAILABLE = False
 
 try:
     import pygame
@@ -33,6 +41,9 @@ class DashboardNode(Node):
         self.latest_status = None
         self.current_input_mode = 'unknown'
         self.last_click_feedback = 'No command sent yet'
+        self.pending_arm_state = None
+        self.pending_arm_sent_time = 0.0
+        self.pending_arm_retries = 0
 
         self.declare_parameter('display_rate', 20.0)
         display_rate = float(self.get_parameter('display_rate').value)
@@ -57,6 +68,11 @@ class DashboardNode(Node):
         }
 
         self.timer = self.create_timer(1.0 / display_rate, self.tick)
+
+        self.mavros_arm_client = None
+        if MAVROS_SERVICE_AVAILABLE:
+            self.mavros_arm_client = self.create_client(CommandBool, '/mavros/cmd/arming')
+
         self.get_logger().info('Dashboard UI started')
 
     def sensor_callback(self, msg):
@@ -69,10 +85,28 @@ class DashboardNode(Node):
         self.current_input_mode = msg.data
 
     def publish_arm(self, armed: bool):
+        self.publish_arm_gate(armed)
+        self.pending_arm_state = armed
+        self.pending_arm_retries = 8
+        self.pending_arm_sent_time = time.time()
+        self.call_mavros_arm(armed)
+        self.last_click_feedback = 'Sent ARM command' if armed else 'Sent DISARM command'
+
+    def publish_arm_gate(self, armed: bool):
         msg = Bool()
         msg.data = armed
         self.arm_pub.publish(msg)
-        self.last_click_feedback = 'Sent ARM command' if armed else 'Sent DISARM command'
+
+    def call_mavros_arm(self, armed: bool):
+        if not self.mavros_arm_client:
+            return
+        if not self.mavros_arm_client.service_is_ready():
+            self.last_click_feedback += ' (MAVROS arming service not ready)'
+            return
+
+        req = CommandBool.Request()
+        req.value = armed
+        self.mavros_arm_client.call_async(req)
 
     def publish_input_mode(self, mode: str):
         msg = String()
@@ -90,7 +124,28 @@ class DashboardNode(Node):
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 self.handle_click(event.pos)
 
+        self.process_pending_arm()
+
         self.draw()
+
+    def process_pending_arm(self):
+        if self.pending_arm_state is None:
+            return
+
+        if self.latest_status and self.latest_status.armed == self.pending_arm_state:
+            self.last_click_feedback = f'Arm state confirmed: {self.pending_arm_state}'
+            self.pending_arm_state = None
+            self.pending_arm_retries = 0
+            return
+
+        now = time.time()
+        if self.pending_arm_retries > 0 and (now - self.pending_arm_sent_time) > 0.35:
+            self.publish_arm_gate(self.pending_arm_state)
+            self.pending_arm_sent_time = now
+            self.pending_arm_retries -= 1
+        elif self.pending_arm_retries == 0:
+            self.last_click_feedback = 'Arm command sent, awaiting status confirmation'
+            self.pending_arm_state = None
 
     def handle_click(self, pos):
         if self.buttons['arm'].collidepoint(pos):
