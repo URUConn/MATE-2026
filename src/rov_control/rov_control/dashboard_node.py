@@ -4,6 +4,7 @@ import rclpy
 from rclpy.node import Node
 from rov_msgs.msg import SensorData, RovStatus
 from std_msgs.msg import Bool, String
+from mavros_msgs.msg import State
 import time
 
 try:
@@ -26,6 +27,12 @@ class DashboardNode(Node):
             self.input_mode_state_callback,
             10,
         )
+        self.mavros_state_sub = self.create_subscription(
+            State,
+            '/mavros/state',
+            self.mavros_state_callback,
+            10,
+        )
 
         self.arm_pub = self.create_publisher(Bool, '/rov/arm_cmd', 10)
         self.input_mode_pub = self.create_publisher(String, '/rov/input_mode_cmd', 10)
@@ -33,6 +40,9 @@ class DashboardNode(Node):
         self.latest_sensor = None
         self.latest_status = None
         self.current_input_mode = 'unknown'
+        self.mavros_connected = False
+        self.mavros_armed = False
+        self.mavros_mode = 'unknown'
         self.last_click_feedback = 'No command sent yet'
         self.pending_arm_state = None
         self.pending_arm_sent_time = 0.0
@@ -72,6 +82,11 @@ class DashboardNode(Node):
 
     def input_mode_state_callback(self, msg: String):
         self.current_input_mode = msg.data
+
+    def mavros_state_callback(self, msg: State):
+        self.mavros_connected = bool(msg.connected)
+        self.mavros_armed = bool(msg.armed)
+        self.mavros_mode = msg.mode
 
     def publish_arm(self, armed: bool):
         self.publish_arm_gate(armed)
@@ -153,7 +168,7 @@ class DashboardNode(Node):
         self.draw_button('keyboard', 'Keyboard', (130, 190, 255))
         self.draw_button('xbox', 'Xbox', (170, 170, 255))
 
-        y = 150
+        y = 140
         info_lines = []
         if self.latest_status:
             s = self.latest_status
@@ -181,12 +196,14 @@ class DashboardNode(Node):
             info_lines.append('Sensors: no data')
 
         info_lines.append(f'Input mode (reported): {self.current_input_mode}')
+        info_lines.append(f'MAVROS connected: {self.mavros_connected}')
+        info_lines.append(f'FCU mode/armed: {self.mavros_mode} / {self.mavros_armed}')
         info_lines.append(f'Last UI action: {self.last_click_feedback}')
 
         for line in info_lines:
             text = self.font_body.render(line, True, (210, 218, 232))
             self.screen.blit(text, (36, y))
-            y += 30
+            y += 26
 
         hint = self.font_small.render('Use buttons above to arm/disarm and switch Keyboard/Xbox on the fly.', True, (180, 185, 195))
         self.screen.blit(hint, (36, 500))

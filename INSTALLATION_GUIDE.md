@@ -236,9 +236,16 @@ source install/setup.bash
 ros2 launch rov_onboard onboard_launch.py
 ```
 
+`onboard_launch.py` now auto-starts MAVROS. If your flight controller is on a different serial device, override at launch:
+
+```bash
+ros2 launch rov_onboard onboard_launch.py fcu_url:=serial:///dev/ttyUSB0:115200
+```
+
 Expected output:
 ```
 [onboard_launch.py] Starting onboard nodes...
+[mavros_node-1] FCU URL: serial:///dev/ttyACM0:115200
 [camera_node-1] Camera opened: 640x480 @ 30fps
 [sensor_node-2] Sensor node started
 [mavros_bridge_node-3] MAVROS node started, waiting for FCU...
