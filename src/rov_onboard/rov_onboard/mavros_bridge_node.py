@@ -1,3 +1,35 @@
+            self.fcu_connected = False
+            self.get_logger().warn('No thruster commands received (timeout)')
+        if self.last_command_time is None:
+            if not self.fcu_connected:
+                self.get_logger().info('Waiting for thruster commands and FCU connection...')
+            self.fcu_connected = False
+        rc_msg = OverrideRCIn()
+        rc_msg.channels = self.rc_channels
+        self.rc_override_pub.publish(rc_msg)
+        self.rc_channels = [
+            self.rc_center_pwm,
+            self.rc_center_pwm,
+            self.rc_center_pwm,
+            self.rc_center_pwm,
+            1100,
+            self.rc_center_pwm,
+        ]
+        future = self.arm_client.call_async(req)
+        if not self.arm_client.service_is_ready():
+            self.get_logger().warn('MAVROS arming service not ready: /mavros/cmd/arming')
+            if self.armed:
+                self.get_logger().warn('Runtime arm state changed: DISARMED')
+            self.armed = False
+        if not requested:
+        self.rc_channels = [
+            self.rc_center_pwm,  # Channel 1 - Roll
+            self.rc_center_pwm,  # Channel 2 - Pitch
+            self.rc_center_pwm,  # Channel 3 - Throttle (vertical)
+            self.rc_center_pwm,  # Channel 4 - Yaw
+            1100,                 # Channel 5 - Manual control (1100 = manual mode)
+            self.rc_center_pwm,  # Channel 6 - Custom
+        ]
 """
 MAVROS Bridge Node - Interfaces between ROS 2 thruster commands and MAVROS RC Override.
 Runs on the LattePanda (onboard computer).
@@ -12,9 +44,9 @@ import rclpy
 from rclpy.node import Node
 from rov_msgs.msg import ThrusterCommand
 from mavros_msgs.msg import OverrideRCIn
-from mavros_msgs.msg import State
 from mavros_msgs.srv import CommandBool
 from std_msgs.msg import Bool
+import threading
 import time
 
 
@@ -32,9 +64,6 @@ class MavrosBridgeNode(Node):
     
     This node converts normalized thruster values (-1.0 to 1.0) to RC PWM values (1000-2000 µs).
     """
-
-    RC_CHANNEL_COUNT = 18
-    RC_NO_CHANGE = 65535
 
     def __init__(self):
         super().__init__('mavros_bridge_node')
@@ -70,36 +99,12 @@ class MavrosBridgeNode(Node):
             self.arm_callback,
             10
         )
-        self.mavros_state_sub = self.create_subscription(
-            State,
-            '/mavros/state',
-            lambda msg: self.mavros_state_callback(msg, 'mavros'),
-            10,
-        )
-        self.mavros_state_sub_uas1 = self.create_subscription(
-            State,
-            '/uas1/mavros/state',
-            lambda msg: self.mavros_state_callback(msg, 'uas1'),
-            10,
-        )
-        self.arm_clients = {
-            '/mavros/cmd/arming': self.create_client(CommandBool, '/mavros/cmd/arming'),
-            '/mavros/mavros/arming': self.create_client(CommandBool, '/mavros/mavros/arming'),
-            '/cmd/arming': self.create_client(CommandBool, '/cmd/arming'),
-            '/uas1/mavros/cmd/arming': self.create_client(CommandBool, '/uas1/mavros/cmd/arming'),
-            '/uas1/mavros/arming': self.create_client(CommandBool, '/uas1/mavros/arming'),
-            '/uas1/cmd/arming': self.create_client(CommandBool, '/uas1/cmd/arming'),
-        }
+        self.arm_client = self.create_client(CommandBool, '/mavros/cmd/arming')
 
         # State tracking
         self.last_command_time = None
         self.connection_timeout = 5.0  # seconds
         self.fcu_connected = False
-        self.connected_namespaces = {'mavros': False, 'uas1': False}
-        self.active_namespace = None
-        self.active_arm_service = None
-        self.last_waiting_log_time = 0.0
-        self.last_arm_service_warn_time = 0.0
         self.last_timeout_warn_time = 0.0
 
         # Initial state - all channels to neutral
@@ -325,6 +330,9 @@ class MavrosBridgeNode(Node):
                 self.last_timeout_warn_time = now
             return
 
+        if not self.fcu_connected:
+            self.get_logger().info('✓ Connected to MAVROS and receiving commands')
+            self.fcu_connected = True
 
 
 def main(args=None):

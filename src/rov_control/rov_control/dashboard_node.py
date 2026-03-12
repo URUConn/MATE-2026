@@ -34,18 +34,11 @@ class DashboardNode(Node):
             10,
         )
         self.mavros_state_sub = None
-        self.mavros_state_sub_uas1 = None
         if MAVROS_MSGS_AVAILABLE:
             self.mavros_state_sub = self.create_subscription(
                 State,
                 '/mavros/state',
-                lambda msg: self.mavros_state_callback(msg, 'mavros'),
-                10,
-            )
-            self.mavros_state_sub_uas1 = self.create_subscription(
-                State,
-                '/uas1/mavros/state',
-                lambda msg: self.mavros_state_callback(msg, 'uas1'),
+                self.mavros_state_callback,
                 10,
             )
 
@@ -58,11 +51,6 @@ class DashboardNode(Node):
         self.mavros_connected = False
         self.mavros_armed = False
         self.mavros_mode = 'unknown'
-        self.mavros_state_by_source = {
-            'mavros': {'connected': False, 'armed': False, 'mode': ''},
-            'uas1': {'connected': False, 'armed': False, 'mode': ''},
-        }
-        self.mavros_source = 'none'
         self.mavros_status_note = '' if MAVROS_MSGS_AVAILABLE else 'mavros_msgs not installed on control laptop'
         self.last_click_feedback = 'No command sent yet'
         self.pending_arm_state = None
@@ -104,19 +92,10 @@ class DashboardNode(Node):
     def input_mode_state_callback(self, msg: String):
         self.current_input_mode = msg.data
 
-    def mavros_state_callback(self, msg: State, source: str):
-        self.mavros_state_by_source[source] = {
-            'connected': bool(msg.connected),
-            'armed': bool(msg.armed),
-            'mode': msg.mode,
-        }
-
-        preferred_source = 'uas1' if self.mavros_state_by_source['uas1']['connected'] else 'mavros'
-        state = self.mavros_state_by_source[preferred_source]
-        self.mavros_source = preferred_source if state['connected'] else 'none'
-        self.mavros_connected = state['connected']
-        self.mavros_armed = state['armed']
-        self.mavros_mode = state['mode'] if state['mode'] else 'unknown'
+    def mavros_state_callback(self, msg: State):
+        self.mavros_connected = bool(msg.connected)
+        self.mavros_armed = bool(msg.armed)
+        self.mavros_mode = msg.mode
         self.mavros_status_note = ''
 
     def publish_arm(self, armed: bool):
@@ -228,7 +207,6 @@ class DashboardNode(Node):
 
         info_lines.append(f'Input mode (reported): {self.current_input_mode}')
         info_lines.append(f'MAVROS connected: {self.mavros_connected}')
-        info_lines.append(f'MAVROS source: {self.mavros_source}')
         info_lines.append(f'FCU mode/armed: {self.mavros_mode} / {self.mavros_armed}')
         if self.mavros_status_note:
             info_lines.append(f'MAVROS status note: {self.mavros_status_note}')
