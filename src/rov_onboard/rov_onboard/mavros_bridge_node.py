@@ -69,7 +69,10 @@ class MavrosBridgeNode(Node):
             self.arm_callback,
             10
         )
-        self.arm_client = self.create_client(CommandBool, '/mavros/cmd/arming')
+        self.arm_clients = {
+            '/mavros/cmd/arming': self.create_client(CommandBool, '/mavros/cmd/arming'),
+            '/cmd/arming': self.create_client(CommandBool, '/cmd/arming'),
+        }
 
         # State tracking
         self.last_command_time = None
@@ -99,14 +102,21 @@ class MavrosBridgeNode(Node):
             self.publish_neutral_override()
             return
 
-        if not self.arm_client.service_is_ready():
-            self.get_logger().warn('MAVROS arming service not ready: /mavros/cmd/arming')
+        arm_client = self._get_ready_arm_client()
+        if arm_client is None:
+            self.get_logger().warn('MAVROS arming service not ready: tried /mavros/cmd/arming and /cmd/arming')
             return
 
         req = CommandBool.Request()
         req.value = requested
-        future = self.arm_client.call_async(req)
+        future = arm_client.call_async(req)
         future.add_done_callback(lambda f: self._on_arm_service_response(f, requested))
+
+    def _get_ready_arm_client(self):
+        for _, client in self.arm_clients.items():
+            if client.service_is_ready():
+                return client
+        return None
 
     def _on_arm_service_response(self, future, requested: bool):
         try:
