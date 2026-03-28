@@ -44,7 +44,14 @@ class ArmEncoderBridgeNode(Node):
         self.declare_parameter('servo_min_deg', [0.0] * 8)
         self.declare_parameter('servo_max_deg', [180.0] * 8)
 
+        _ARM_SERVO_COMMAND_SIZE = 8
         self.axis_count = int(self.get_parameter('axis_count').value)
+        if self.axis_count > _ARM_SERVO_COMMAND_SIZE:
+            self.get_logger().error(
+                f'axis_count {self.axis_count} exceeds ArmServoCommand.target_deg size '
+                f'({_ARM_SERVO_COMMAND_SIZE}). Clamping to {_ARM_SERVO_COMMAND_SIZE}.'
+            )
+            self.axis_count = _ARM_SERVO_COMMAND_SIZE
         self.input_topic = str(self.get_parameter('input_topic').value)
         self.output_topic = str(self.get_parameter('output_topic').value)
 

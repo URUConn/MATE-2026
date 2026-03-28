@@ -26,6 +26,7 @@ class CameraNode(Node):
         self.declare_parameter('frame_height', 720)
         self.declare_parameter('fps', 60)
         self.declare_parameter('publish_compressed', True)
+        self.declare_parameter('publish_raw', True)
         self.declare_parameter('jpeg_quality', 50)
 
         # Get parameters
@@ -34,6 +35,7 @@ class CameraNode(Node):
         frame_height = self.get_parameter('frame_height').value
         fps = self.get_parameter('fps').value
         self.publish_compressed = self.get_parameter('publish_compressed').value
+        self.publish_raw = self.get_parameter('publish_raw').value
         self.jpeg_quality = self.get_parameter('jpeg_quality').value
 
         # Construct a GStreamer pipeline string
@@ -78,7 +80,8 @@ class CameraNode(Node):
 
         # Publishers
         self.bridge = CvBridge()
-        self.image_pub = self.create_publisher(Image, '/rov/camera/image_raw', 10)
+        if self.publish_raw:
+            self.image_pub = self.create_publisher(Image, '/rov/camera/image_raw', 10)
 
         if self.publish_compressed:
             self.compressed_pub = self.create_publisher(
@@ -100,16 +103,21 @@ class CameraNode(Node):
             self.get_logger().warn('Failed to capture frame')
             return
 
+        # Build the header (used by both raw and compressed messages)
+        stamp = self.get_clock().now().to_msg()
+
         # Publish raw image
-        img_msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
-        img_msg.header.stamp = self.get_clock().now().to_msg()
-        img_msg.header.frame_id = 'camera_link'
-        self.image_pub.publish(img_msg)
+        if self.publish_raw:
+            img_msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
+            img_msg.header.stamp = stamp
+            img_msg.header.frame_id = 'camera_link'
+            self.image_pub.publish(img_msg)
 
         # Publish compressed image (much better for network streaming)
         if self.publish_compressed:
             compressed_msg = CompressedImage()
-            compressed_msg.header = img_msg.header
+            compressed_msg.header.stamp = stamp
+            compressed_msg.header.frame_id = 'camera_link'
             compressed_msg.format = 'jpeg'
             encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality]
             _, encoded = cv2.imencode('.jpg', frame, encode_param)
