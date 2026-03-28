@@ -122,18 +122,36 @@ class QgcVideoBridgeNode(Node):
         if self._ffmpeg_process is None:
             return
 
+        process = self._ffmpeg_process
         try:
-            if self._ffmpeg_process.stdin:
-                self._ffmpeg_process.stdin.close()
-            self._ffmpeg_process.terminate()
-            self._ffmpeg_process.wait(timeout=1.0)
-        except Exception:
-            pass
+            if process.stdin:
+                process.stdin.close()
+            try:
+                process.terminate()
+                process.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                self.get_logger().warning(
+                    'ffmpeg process did not terminate gracefully within timeout; killing it.'
+                )
+                process.kill()
+                try:
+                    process.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    self.get_logger().error(
+                        'ffmpeg process could not be killed and may still be running.'
+                    )
+                    # Keep the process handle so a later attempt can retry cleanup.
+                    return
+        except Exception as exc:
+            # Log unexpected errors during shutdown instead of swallowing them.
+            self.get_logger().error(f'Error while stopping ffmpeg process: {exc}')
         finally:
-            self._ffmpeg_process = None
-            if self._ffmpeg_stderr_thread is not None:
-                self._ffmpeg_stderr_thread.join(timeout=1.0)
-                self._ffmpeg_stderr_thread = None
+            # Only clear the process reference and join the stderr thread if the process exited.
+            if process.poll() is not None:
+                self._ffmpeg_process = None
+                if self._ffmpeg_stderr_thread is not None:
+                    self._ffmpeg_stderr_thread.join(timeout=1.0)
+                    self._ffmpeg_stderr_thread = None
 
     def _log_ffmpeg_stderr(self) -> None:
         """
