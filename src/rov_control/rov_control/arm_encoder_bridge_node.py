@@ -46,10 +46,11 @@ class ArmEncoderBridgeNode(Node):
 
         _ARM_SERVO_COMMAND_SIZE = 8
         self.axis_count = int(self.get_parameter('axis_count').value)
-        if self.axis_count > _ARM_SERVO_COMMAND_SIZE:
+        if self.axis_count != _ARM_SERVO_COMMAND_SIZE:
             self.get_logger().error(
-                f'axis_count {self.axis_count} exceeds ArmServoCommand.target_deg size '
-                f'({_ARM_SERVO_COMMAND_SIZE}). Clamping to {_ARM_SERVO_COMMAND_SIZE}.'
+                f'Configured axis_count {self.axis_count} does not match '
+                f'ArmServoCommand.target_deg size ({_ARM_SERVO_COMMAND_SIZE}). '
+                f'Overriding axis_count to {_ARM_SERVO_COMMAND_SIZE}.'
             )
             self.axis_count = _ARM_SERVO_COMMAND_SIZE
         self.input_topic = str(self.get_parameter('input_topic').value)
