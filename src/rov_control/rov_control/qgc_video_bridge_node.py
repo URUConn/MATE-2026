@@ -6,6 +6,7 @@ using an ffmpeg UDP stream.
 """
 
 import subprocess
+import threading
 from typing import List, Optional
 
 import rclpy
@@ -36,6 +37,7 @@ class QgcVideoBridgeNode(Node):
         self.bitrate = str(self.get_parameter('bitrate').value)
 
         self._ffmpeg_process: Optional[subprocess.Popen] = None
+        self._ffmpeg_stderr_thread: Optional[threading.Thread] = None
         self._frame_count = 0
 
         # Subscribe to the ROS compressed image topic
@@ -93,8 +95,13 @@ class QgcVideoBridgeNode(Node):
                 self._ffmpeg_command(),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
             )
+            self._ffmpeg_stderr_thread = threading.Thread(
+                target=self._log_ffmpeg_stderr,
+                daemon=True,
+            )
+            self._ffmpeg_stderr_thread.start()
         except FileNotFoundError:
             self._ffmpeg_process = None
             self.get_logger().error('ffmpeg not found. Install ffmpeg or set ffmpeg_path.')
@@ -116,6 +123,23 @@ class QgcVideoBridgeNode(Node):
             pass
         finally:
             self._ffmpeg_process = None
+            if self._ffmpeg_stderr_thread is not None:
+                self._ffmpeg_stderr_thread.join(timeout=1.0)
+                self._ffmpeg_stderr_thread = None
+
+    def _log_ffmpeg_stderr(self) -> None:
+        """
+        Reads ffmpeg stderr line-by-line and forwards each line to the ROS logger.
+        Runs in a daemon thread and exits when the ffmpeg process closes its stderr pipe.
+        :return: None
+        """
+        process = self._ffmpeg_process
+        if process is None or process.stderr is None:
+            return
+        for raw_line in process.stderr:
+            line = raw_line.decode(errors='replace').rstrip()
+            if line:
+                self.get_logger().error(f'ffmpeg: {line}')
 
     def _image_callback(self, msg: CompressedImage) -> None:
         """
