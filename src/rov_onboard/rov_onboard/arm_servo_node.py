@@ -199,7 +199,15 @@ class ArmServoNode(Node):
         elif hasattr(servo, 'write'):
             servo.write(angle_deg)
         else:
-            raise RuntimeError('Unsupported PinPong Servo API: expected write_angle() or write()')
+            # Avoid raising here so a mismatched Servo API does not crash the node.
+            # Log the error once and skip further writes.
+            if not getattr(self, '_servo_api_error_logged', False):
+                self.get_logger().error(
+                    'Unsupported PinPong Servo API for servo index %d: expected write_angle() or write()',
+                    index,
+                )
+                setattr(self, '_servo_api_error_logged', True)
+            return
 
     def _command_callback(self, msg: ArmServoCommand) -> None:
         """
