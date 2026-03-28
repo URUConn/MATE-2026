@@ -241,7 +241,12 @@ class ArmServoNode(Node):
             self.get_logger().warn(
                 f'No arm command for {elapsed:.2f}s, driving to neutral pose for safety'
             )
-            for index in range(self.axis_count):
+            # Use the number of available servo drivers when PinPong is enabled to
+            # avoid indexing errors if axis_count and the driver list length differ.
+            max_index = self.axis_count
+            if self._servo_driver is not None:
+                max_index = min(max_index, len(self._servo_driver))
+            for index in range(max_index):
                 self._write_servo(index, self.neutral_deg[index])
             self._timed_out = True
 
