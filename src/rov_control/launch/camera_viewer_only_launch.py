@@ -1,5 +1,7 @@
-"""Minimal launch file for QGroundControl video bridge testing."""
+"""Launch file for the QGroundControl video bridge (`qgc_video_bridge_node`).
 
+Kept under the legacy 'camera_viewer_only_launch.py' name for backward compatibility.
+"""
 from launch import LaunchDescription
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
