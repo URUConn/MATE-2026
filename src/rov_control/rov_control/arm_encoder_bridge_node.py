@@ -89,7 +89,7 @@ class ArmEncoderBridgeNode(Node):
 
     def _normalize_list(self, values: List[str], fallback: List[str], name: str) -> List[str]:
         """
-        Normalizes a list of string parameters to match the expected axis count.Normalize a list of values to a list
+        Normalizes a list of string parameters to match the expected axis count.
         :param values: The list of values to normalize.
         :param fallback: The fallback list to use if the input list is invalid.
         :param name: The name of the parameter (for logging purposes).
@@ -105,7 +105,7 @@ class ArmEncoderBridgeNode(Node):
 
     def _normalize_float_list(self, values: List[float], fallback: List[float], name: str) -> List[float]:
         """
-        Normalizes a list of float values to match the expected axis count.Normalize a list of values to a list
+        Normalizes a list of float values to match the expected axis count.
         :param values: The list of float values to normalize.
         :param fallback: The fallback list to use if the input list is invalid.
         :param name: The name of the parameter (for logging purposes).
