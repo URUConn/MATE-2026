@@ -4,7 +4,7 @@
   <name>rov_onboard</name>
   <version>0.1.0</version>
   <description>Onboard nodes for MATE ROV (runs on LattePanda)</description>
-  <maintainer email="URUC.UCONN@gmail.comg">URUC</maintainer>
+  <maintainer email="URUC.UCONN@gmail.com">URUC</maintainer>
   <license>MIT</license>
 
   <depend>rclpy</depend>
