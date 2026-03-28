@@ -105,6 +105,14 @@ class QgcVideoBridgeNode(Node):
         except FileNotFoundError:
             self._ffmpeg_process = None
             self.get_logger().error('ffmpeg not found. Install ffmpeg or set ffmpeg_path.')
+        except OSError as exc:
+            # Other OS-level errors when starting ffmpeg (e.g., permission denied, exec format error)
+            self._ffmpeg_process = None
+            self.get_logger().error(f'Failed to start ffmpeg due to OS error: {exc}')
+        except Exception as exc:
+            # Catch-all to prevent unexpected failures from crashing the node
+            self._ffmpeg_process = None
+            self.get_logger().error(f'Unexpected error while starting ffmpeg: {exc}')
 
     def _stop_ffmpeg(self) -> None:
         """
