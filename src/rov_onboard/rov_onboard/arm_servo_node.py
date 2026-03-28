@@ -210,7 +210,8 @@ class ArmServoNode(Node):
         self._last_command_time = self.get_clock().now()
         self._timed_out = False
 
-        for index in range(self.axis_count):
+        max_index = min(self.axis_count, len(msg.target_deg))
+        for index in range(max_index):
             self._write_servo(index, msg.target_deg[index])
 
     def _check_timeout(self) -> None:
