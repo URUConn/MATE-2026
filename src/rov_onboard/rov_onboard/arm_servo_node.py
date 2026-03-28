@@ -59,6 +59,12 @@ class ArmServoNode(Node):
             DEFAULT_AXIS_NAMES,
             'axis_names',
         )
+        if len(self.axis_names) != self.axis_count:
+            self.get_logger().warn(
+                f"Configured axis_names length ({len(self.axis_names)}) does not match "
+                f"axis_count ({self.axis_count})."
+            )
+        self.get_logger().debug(f"Arm servo axis order: {self.axis_names}")
         self.servo_min_deg = self._normalize_float_list(
             list(self.get_parameter('servo_min_deg').value),
             [0.0] * self.axis_count,
