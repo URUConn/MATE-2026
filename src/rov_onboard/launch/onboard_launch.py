@@ -1,7 +1,4 @@
-"""
-Launch file for all onboard ROV nodes.
-Run this on the LattePanda.
-"""
+"""Launch onboard camera and arm servo nodes on the LattePanda."""
 
 from launch import LaunchDescription
 from launch_ros.actions import Node
@@ -26,22 +23,8 @@ def generate_launch_description():
         ),
         Node(
             package='rov_onboard',
-            executable='thruster_node',
-            name='thruster_node',
-            parameters=[config],
-            output='screen',
-        ),
-        Node(
-            package='rov_onboard',
-            executable='sensor_node',
-            name='sensor_node',
-            parameters=[config],
-            output='screen',
-        ),
-        Node(
-            package='rov_onboard',
-            executable='status_node',
-            name='status_node',
+            executable='arm_servo_node',
+            name='arm_servo_node',
             parameters=[config],
             output='screen',
         ),

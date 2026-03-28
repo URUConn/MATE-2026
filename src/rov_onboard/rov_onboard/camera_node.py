@@ -11,14 +11,20 @@ import cv2
 
 
 class CameraNode(Node):
+    """
+    ROS 2 node that captures frames from a USB camera using OpenCV with GStreamer and publishes them as ROS image messages. It also optionally publishes compressed JPEG images for more efficient streaming.
+    """
     def __init__(self):
+        """
+        Initializes the camera node, sets up the camera capture using OpenCV with GStreamer, and creates publishers for raw and compressed images.
+        """
         super().__init__('camera_node')
 
         # Declare parameters
         self.declare_parameter('camera_index', 0)
-        self.declare_parameter('frame_width', 640)
-        self.declare_parameter('frame_height', 480)
-        self.declare_parameter('fps', 30)
+        self.declare_parameter('frame_width', 1280)
+        self.declare_parameter('frame_height', 720)
+        self.declare_parameter('fps', 60)
         self.declare_parameter('publish_compressed', True)
         self.declare_parameter('jpeg_quality', 50)
 
@@ -85,6 +91,10 @@ class CameraNode(Node):
         self.frame_count = 0
 
     def publish_frame(self):
+        """
+        Captures a frame from the camera, converts it to a ROS image message, and publishes it. Also optionally publishes a compressed JPEG version of the image.
+        :return: None
+        """
         ret, frame = self.cap.read()
         if not ret:
             self.get_logger().warn('Failed to capture frame')
@@ -106,16 +116,26 @@ class CameraNode(Node):
             compressed_msg.data = encoded.tobytes()
             self.compressed_pub.publish(compressed_msg)
 
+        # Log every 150 frames
         self.frame_count += 1
         if self.frame_count % 150 == 0:
             self.get_logger().info(f'Published {self.frame_count} frames')
 
     def destroy_node(self):
+        """
+        Destroys the node.
+        :return: None
+        """
         self.cap.release()
         super().destroy_node()
 
 
 def main(args=None):
+    """
+    Main entry point for the application.
+    :param args: Arguments passed from the command line.
+    :return: None
+    """
     rclpy.init(args=args)
     node = CameraNode()
     try:

@@ -11,9 +11,7 @@ find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
-  "msg/ThrusterCommand.msg"
-  "msg/SensorData.msg"
-  "msg/RovStatus.msg"
+  "msg/ArmServoCommand.msg"
   DEPENDENCIES std_msgs geometry_msgs
 )
 

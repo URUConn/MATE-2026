@@ -1,5 +1,5 @@
 """
-Minimal launch file — camera node only.
+Minimal launch file: camera node only.
 Useful for testing just the camera stream before full system is ready.
 Run this on the LattePanda.
 """

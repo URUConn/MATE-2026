@@ -1,7 +1,18 @@
-/**:
+arm_encoder_bridge_node:
   ros__parameters:
-    window_name: 'ROV Camera Feed'
-    publish_rate: 50.0
-    deadzone: 0.1
-    max_power: 1.0
-    display_rate: 2.0
+    axis_count: 8
+    input_topic: /rov/arm/encoder_values
+    output_topic: /rov/arm/servo_command
+    axis_names: [base, shoulder, elbow, wrist_pitch, wrist_roll, wrist_yaw, tool_rotate, gripper]
+    scales: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    offsets_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    servo_min_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    servo_max_deg: [180.0, 180.0, 180.0, 180.0, 180.0, 180.0, 180.0, 180.0]
+
+qgc_video_bridge_node:
+  ros__parameters:
+    input_topic: /rov/camera/image_compressed
+    ffmpeg_path: ffmpeg
+    udp_host: 127.0.0.1
+    udp_port: 5600
+    bitrate: 2500k

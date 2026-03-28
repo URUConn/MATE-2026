@@ -1,7 +1,4 @@
-"""
-Minimal launch file — camera viewer only.
-Useful for testing just the camera stream on the control laptop.
-"""
+"""Minimal launch file for QGroundControl video bridge testing."""
 
 from launch import LaunchDescription
 from launch_ros.actions import Node
@@ -19,8 +16,8 @@ def generate_launch_description():
     return LaunchDescription([
         Node(
             package='rov_control',
-            executable='camera_viewer_node',
-            name='camera_viewer_node',
+            executable='qgc_video_bridge_node',
+            name='qgc_video_bridge_node',
             parameters=[config],
             output='screen',
         ),
