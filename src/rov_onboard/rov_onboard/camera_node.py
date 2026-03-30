@@ -11,15 +11,22 @@ import cv2
 
 
 class CameraNode(Node):
+    """
+    ROS 2 node that captures frames from a USB camera using OpenCV with GStreamer and publishes them as ROS image messages. It also optionally publishes compressed JPEG images for more efficient streaming.
+    """
     def __init__(self):
+        """
+        Initializes the camera node, sets up the camera capture using OpenCV with GStreamer, and creates publishers for raw and compressed images.
+        """
         super().__init__('camera_node')
 
         # Declare parameters
         self.declare_parameter('camera_index', 0)
-        self.declare_parameter('frame_width', 640)
-        self.declare_parameter('frame_height', 480)
-        self.declare_parameter('fps', 30)
+        self.declare_parameter('frame_width', 1280)
+        self.declare_parameter('frame_height', 720)
+        self.declare_parameter('fps', 60)
         self.declare_parameter('publish_compressed', True)
+        self.declare_parameter('publish_raw', True)
         self.declare_parameter('jpeg_quality', 50)
 
         # Get parameters
@@ -28,6 +35,7 @@ class CameraNode(Node):
         frame_height = self.get_parameter('frame_height').value
         fps = self.get_parameter('fps').value
         self.publish_compressed = self.get_parameter('publish_compressed').value
+        self.publish_raw = self.get_parameter('publish_raw').value
         self.jpeg_quality = self.get_parameter('jpeg_quality').value
 
         # Construct a GStreamer pipeline string
@@ -72,7 +80,8 @@ class CameraNode(Node):
 
         # Publishers
         self.bridge = CvBridge()
-        self.image_pub = self.create_publisher(Image, '/rov/camera/image_raw', 10)
+        if self.publish_raw:
+            self.image_pub = self.create_publisher(Image, '/rov/camera/image_raw', 10)
 
         if self.publish_compressed:
             self.compressed_pub = self.create_publisher(
@@ -85,37 +94,56 @@ class CameraNode(Node):
         self.frame_count = 0
 
     def publish_frame(self):
+        """
+        Captures a frame from the camera, converts it to a ROS image message, and publishes it. Also optionally publishes a compressed JPEG version of the image.
+        :return: None
+        """
         ret, frame = self.cap.read()
         if not ret:
             self.get_logger().warn('Failed to capture frame')
             return
 
+        # Build the header (used by both raw and compressed messages)
+        stamp = self.get_clock().now().to_msg()
+
         # Publish raw image
-        img_msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
-        img_msg.header.stamp = self.get_clock().now().to_msg()
-        img_msg.header.frame_id = 'camera_link'
-        self.image_pub.publish(img_msg)
+        if self.publish_raw:
+            img_msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
+            img_msg.header.stamp = stamp
+            img_msg.header.frame_id = 'camera_link'
+            self.image_pub.publish(img_msg)
 
         # Publish compressed image (much better for network streaming)
         if self.publish_compressed:
             compressed_msg = CompressedImage()
-            compressed_msg.header = img_msg.header
+            compressed_msg.header.stamp = stamp
+            compressed_msg.header.frame_id = 'camera_link'
             compressed_msg.format = 'jpeg'
             encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality]
             _, encoded = cv2.imencode('.jpg', frame, encode_param)
             compressed_msg.data = encoded.tobytes()
             self.compressed_pub.publish(compressed_msg)
 
+        # Log every 150 frames
         self.frame_count += 1
         if self.frame_count % 150 == 0:
             self.get_logger().info(f'Published {self.frame_count} frames')
 
     def destroy_node(self):
+        """
+        Destroys the node.
+        :return: None
+        """
         self.cap.release()
         super().destroy_node()
 
 
 def main(args=None):
+    """
+    Main entry point for the application.
+    :param args: Arguments passed from the command line.
+    :return: None
+    """
     rclpy.init(args=args)
     node = CameraNode()
     try:

@@ -1,7 +1,4 @@
-"""
-Launch file for all control station nodes.
-Run this on the control laptop.
-"""
+"""Launch arm bridge and QGC video bridge nodes on the control laptop."""
 
 from launch import LaunchDescription
 from launch_ros.actions import Node
@@ -19,22 +16,15 @@ def generate_launch_description():
     return LaunchDescription([
         Node(
             package='rov_control',
-            executable='camera_viewer_node',
-            name='camera_viewer_node',
+            executable='arm_encoder_bridge_node',
+            name='arm_encoder_bridge_node',
             parameters=[config],
             output='screen',
         ),
         Node(
             package='rov_control',
-            executable='gamepad_node',
-            name='gamepad_node',
-            parameters=[config],
-            output='screen',
-        ),
-        Node(
-            package='rov_control',
-            executable='dashboard_node',
-            name='dashboard_node',
+            executable='qgc_video_bridge_node',
+            name='qgc_video_bridge_node',
             parameters=[config],
             output='screen',
         ),

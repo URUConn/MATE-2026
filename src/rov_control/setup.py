@@ -19,16 +19,15 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='MATE ROV Team',
-    maintainer_email='team@mate-rov.org',
+    maintainer='URUC',
+    maintainer_email='URUC.UCONN@gmail.com',
     description='Control station nodes for MATE ROV (runs on laptop)',
     license='MIT',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'camera_viewer_node = rov_control.camera_viewer_node:main',
-            'gamepad_node = rov_control.gamepad_node:main',
-            'dashboard_node = rov_control.dashboard_node:main',
+            'arm_encoder_bridge_node = rov_control.arm_encoder_bridge_node:main',
+            'qgc_video_bridge_node = rov_control.qgc_video_bridge_node:main',
         ],
     },
 )

@@ -4,14 +4,12 @@
   <name>rov_onboard</name>
   <version>0.1.0</version>
   <description>Onboard nodes for MATE ROV (runs on LattePanda)</description>
-  <maintainer email="team@mate-rov.org">MATE ROV Team</maintainer>
+  <maintainer email="URUC.UCONN@gmail.com">URUC</maintainer>
   <license>MIT</license>
 
   <depend>rclpy</depend>
-  <depend>std_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>cv_bridge</depend>
-  <depend>image_transport</depend>
   <depend>rov_msgs</depend>
 
   <exec_depend>ros2launch</exec_depend>

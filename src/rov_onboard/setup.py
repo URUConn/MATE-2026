@@ -19,17 +19,15 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='MATE ROV Team',
-    maintainer_email='team@mate-rov.org',
+    maintainer='URUC',
+    maintainer_email='URUC.UCONN@gmail.com',
     description='Onboard nodes for MATE ROV (runs on LattePanda)',
     license='MIT',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'camera_node = rov_onboard.camera_node:main',
-            'thruster_node = rov_onboard.thruster_node:main',
-            'sensor_node = rov_onboard.sensor_node:main',
-            'status_node = rov_onboard.status_node:main',
+            'arm_servo_node = rov_onboard.arm_servo_node:main',
         ],
     },
 )
