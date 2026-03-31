@@ -107,6 +107,24 @@ class ArmServoNode(Node):
             f'Arm servo node active on {self.command_topic} ({self.axis_count} axes)'
         )
 
+    def _build_servo(self, pin: int):
+        """Create one Servo instance using API variants seen across PinPong versions."""
+        from pinpong.board import Servo, Pin
+
+        errors = []
+
+        try:
+            return Servo(pin)
+        except Exception as exc:
+            errors.append(f'Servo({pin}) -> {exc}')
+
+        try:
+            return Servo(Pin(pin))
+        except Exception as exc:
+            errors.append(f'Servo(Pin({pin})) -> {exc}')
+
+        raise RuntimeError('; '.join(errors))
+
     def _normalize_list(self, values: List[str], fallback: List[str], name: str) -> List[str]:
         """
         Normalizes a list parameter to match the expected axis count, using fallback values if necessary.
@@ -185,10 +203,24 @@ class ArmServoNode(Node):
                 board = Board()
                 board.begin()
 
-            servos = [Servo(pin) for pin in self.servo_pins]
+            servos = []
+            for pin in self.servo_pins:
+                try:
+                    servos.append(self._build_servo(pin))
+                except Exception as exc:
+                    self.get_logger().error(
+                        f'Failed to initialize Servo on pin {pin}: {exc}'
+                    )
+                    servos.append(None)
+
+            usable = sum(1 for servo in servos if servo is not None)
+            if usable == 0:
+                raise RuntimeError(
+                    'No servo instances initialized. Check PinPong platform selection and pin support.'
+                )
             self.get_logger().info(
                 f'PinPong ready in direct mode (platform={platform or "auto"}) '
-                f'with pins {self.servo_pins}'
+                f'with pins {self.servo_pins} (usable channels: {usable}/{len(servos)})'
             )
             return servos
         except Exception as exc:
@@ -217,6 +249,8 @@ class ArmServoNode(Node):
             return
 
         servo = self._servo_driver[index]
+        if servo is None:
+            return
         if hasattr(servo, 'write_angle'):
             servo.write_angle(angle_deg)
         elif hasattr(servo, 'write'):
