@@ -25,3 +25,23 @@ qgc_video_bridge_node:
     bitrate: 1200k
     output_format: rtp
     gop_size: 10
+
+photogrammetry_node:
+  ros__parameters:
+    input_topic: /rov/camera/image_compressed
+    pose_topic: /rov/photogrammetry/camera_pose
+    status_topic: /rov/photogrammetry/status
+    marker_dictionary: DICT_4X4_50
+    marker_length_m: 0.14
+    max_processing_fps: 12.0
+    downscale: 1.0
+    keyframe_min_interval_sec: 0.35
+    keyframe_pixel_shift: 12.0
+    min_feature_matches: 50
+    orb_features: 800
+    camera_hfov_deg: 92.0
+    camera_matrix: []
+    dist_coeffs: []
+    publish_debug_image: false
+    debug_image_topic: /rov/photogrammetry/debug_image_compressed
+

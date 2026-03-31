@@ -17,7 +17,7 @@ setup(
         (os.path.join('share', package_name, 'config'),
             glob(os.path.join('config', '*.yaml'))),
     ],
-    install_requires=['setuptools', 'pyserial'],
+    install_requires=['setuptools', 'pyserial', 'numpy', 'opencv-contrib-python'],
     zip_safe=True,
     maintainer='URUC',
     maintainer_email='URUC.UCONN@gmail.com',
@@ -28,6 +28,7 @@ setup(
         'console_scripts': [
             'arm_encoder_bridge_node = rov_control.arm_encoder_bridge_node:main',
             'qgc_video_bridge_node = rov_control.qgc_video_bridge_node:main',
+            'photogrammetry_node = rov_control.photogrammetry_node:main',
         ],
     },
 )
