@@ -68,7 +68,8 @@ sudo apt install -y \
   python3-opencv \
   ros-humble-cv-bridge \
   python3-pip \
-  ffmpeg
+  ffmpeg \
+  mavlink-router
 ```
 
 On the **onboard** machine (for servos):
@@ -212,7 +213,21 @@ Onboard:
 ```bash
 cd ~/MATE2026
 source install/setup.bash
+export QGC_IP=<CONTROL_LAPTOP_IP>
 ros2 launch rov_onboard onboard_launch.py
+```
+
+`onboard_launch.py` now auto-starts MAVLink forwarding (`mavlink-routerd`) when `QGC_IP` is set
+or when `qgc_ip:=...` is passed directly:
+
+```bash
+ros2 launch rov_onboard onboard_launch.py qgc_ip:=<CONTROL_LAPTOP_IP> pix_serial:=/dev/ttyACM0 pix_baud:=115200
+```
+
+If needed, disable forwarding for bench tests:
+
+```bash
+ros2 launch rov_onboard onboard_launch.py enable_mavlink_forward:=false
 ```
 
 Laptop:
