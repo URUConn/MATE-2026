@@ -18,5 +18,4 @@ arm_servo_node:
     neutral_deg: [90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
     command_timeout_sec: 0.5
     use_pinpong: true
-    pinpong_board: uno
-    pinpong_port: /dev/ttyUSB0
+    pinpong_platform: x86

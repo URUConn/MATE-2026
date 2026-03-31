@@ -1,9 +1,4 @@
-"""
-Arm Servo Node
-
-Subscribes to arm servo commands and writes angles to onboard servos using
-PinPong when available.
-"""
+"""Subscribe to arm servo commands and drive servos on the onboard computer."""
 
 from typing import List
 
@@ -42,16 +37,24 @@ class ArmServoNode(Node):
         self.declare_parameter('neutral_deg', [90.0] * 7)
         self.declare_parameter('command_timeout_sec', 0.5)
         self.declare_parameter('use_pinpong', False)
-        self.declare_parameter('pinpong_board', 'uno')
-        self.declare_parameter('pinpong_port', '/dev/ttyUSB0')
+        self.declare_parameter('pinpong_platform', 'x86')
+        # Deprecated compatibility params from external-board workflow.
+        self.declare_parameter('pinpong_board', '')
+        self.declare_parameter('pinpong_port', '')
         self.declare_parameter('servo_pins', [2, 3, 4, 5, 6, 7, 8])
 
         self.axis_count = int(self.get_parameter('axis_count').value)
         self.command_topic = str(self.get_parameter('command_topic').value)
         self.command_timeout_sec = float(self.get_parameter('command_timeout_sec').value)
         self.use_pinpong = bool(self.get_parameter('use_pinpong').value)
-        self.pinpong_board = str(self.get_parameter('pinpong_board').value)
-        self.pinpong_port = str(self.get_parameter('pinpong_port').value)
+        self.pinpong_platform = str(self.get_parameter('pinpong_platform').value)
+        self._legacy_pinpong_board = str(self.get_parameter('pinpong_board').value)
+        self._legacy_pinpong_port = str(self.get_parameter('pinpong_port').value)
+        if self._legacy_pinpong_board or self._legacy_pinpong_port:
+            self.get_logger().warn(
+                'pinpong_board/pinpong_port are deprecated and ignored. '
+                f'Using direct PinPong platform mode: {self.pinpong_platform}.'
+            )
 
         self.axis_names = self._normalize_list(
             list(self.get_parameter('axis_names').value),
@@ -81,7 +84,7 @@ class ArmServoNode(Node):
         )
         self.servo_pins = self._normalize_int_list(
             list(self.get_parameter('servo_pins').value),
-            [2, 3, 4, 5, 6, 7, 8, 9],
+            [2, 3, 4, 5, 6, 7, 8],
             'servo_pins',
         )
 
@@ -155,7 +158,7 @@ class ArmServoNode(Node):
 
     def _create_servo_driver(self):
         """
-        Create the servo driver.
+        Create the servo driver for direct onboard GPIO access.
         :return: A list of servo objects if PinPong is available and enabled, otherwise None for dry-run mode.
         """
 
@@ -167,10 +170,11 @@ class ArmServoNode(Node):
         try:
             from pinpong.board import Board, Servo
 
-            Board(self.pinpong_board, self.pinpong_port).begin()
+            Board(self.pinpong_platform).begin()
             servos = [Servo(pin) for pin in self.servo_pins]
             self.get_logger().info(
-                f'PinPong ready on {self.pinpong_board} {self.pinpong_port} with pins {self.servo_pins}'
+                f'PinPong ready in direct mode on platform {self.pinpong_platform} '
+                f'with pins {self.servo_pins}'
             )
             return servos
         except Exception as exc:
