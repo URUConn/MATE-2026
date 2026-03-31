@@ -15,6 +15,6 @@ qgc_video_bridge_node:
     ffmpeg_path: ffmpeg
     udp_host: 127.0.0.1
     udp_port: 5600
-    bitrate: 2500k
+    bitrate: 1200k
     output_format: h264
-    gop_size: 30
+    gop_size: 15

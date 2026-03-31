@@ -5,7 +5,7 @@ camera_node:
     frame_height: 720
     fps: 60
     publish_compressed: true
-    jpeg_quality: 50
+    jpeg_quality: 35
 
 arm_servo_node:
   ros__parameters:
