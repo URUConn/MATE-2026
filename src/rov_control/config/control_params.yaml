@@ -9,10 +9,12 @@ arm_encoder_bridge_node:
     servo_min_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     servo_max_deg: [180.0, 180.0, 180.0, 180.0, 180.0, 180.0, 180.0]
     use_serial_input: true
-    serial_port: /dev/ttyACM0
+    serial_port: /dev/serial/by-id/CHANGE_ME_TO_YOUR_ARDUINO
     serial_baud_rate: 921600
     serial_timeout_sec: 0.02
     serial_poll_sec: 0.01
+    serial_reconnect_sec: 1.0
+    serial_auto_discover: true
 
 qgc_video_bridge_node:
   ros__parameters:

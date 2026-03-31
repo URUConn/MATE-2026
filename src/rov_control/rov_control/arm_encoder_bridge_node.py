@@ -1,5 +1,7 @@
 """Bridge Arduino encoder CSV data to arm servo commands."""
 
+import glob
+import time
 from typing import List
 
 import rclpy
@@ -42,6 +44,8 @@ class ArmEncoderBridgeNode(Node):
         self.declare_parameter('serial_baud_rate', 921600)
         self.declare_parameter('serial_timeout_sec', 0.02)
         self.declare_parameter('serial_poll_sec', 0.01)
+        self.declare_parameter('serial_reconnect_sec', 1.0)
+        self.declare_parameter('serial_auto_discover', True)
 
         _ARM_SERVO_COMMAND_SIZE = 8
         self.axis_count = int(self.get_parameter('axis_count').value)
@@ -62,9 +66,12 @@ class ArmEncoderBridgeNode(Node):
         self.serial_baud_rate = int(self.get_parameter('serial_baud_rate').value)
         self.serial_timeout_sec = float(self.get_parameter('serial_timeout_sec').value)
         self.serial_poll_sec = float(self.get_parameter('serial_poll_sec').value)
+        self.serial_reconnect_sec = float(self.get_parameter('serial_reconnect_sec').value)
+        self.serial_auto_discover = bool(self.get_parameter('serial_auto_discover').value)
 
         self._serial = None
         self._serial_timer = None
+        self._last_serial_attempt_sec = 0.0
 
         self.axis_names = self._normalize_list(
             list(self.get_parameter('axis_names').value),
@@ -109,32 +116,63 @@ class ArmEncoderBridgeNode(Node):
         )
 
     def _setup_serial_reader(self) -> None:
-        """Open serial port and start periodic reads from Arduino CSV output."""
+        """Start periodic serial polling with automatic reconnect."""
+        self._serial_timer = self.create_timer(self.serial_poll_sec, self._serial_worker)
+        self._serial_worker()
+
+    def _candidate_ports(self) -> List[str]:
+        ports = [self.serial_port]
+        if self.serial_auto_discover:
+            ports.extend(sorted(glob.glob('/dev/serial/by-id/*')))
+            ports.extend(sorted(glob.glob('/dev/ttyACM*')))
+            ports.extend(sorted(glob.glob('/dev/ttyUSB*')))
+
+        unique_ports: List[str] = []
+        for port in ports:
+            if port and port not in unique_ports:
+                unique_ports.append(port)
+        return unique_ports
+
+    def _try_open_serial(self) -> None:
         try:
             import serial  # type: ignore
-
-            self._serial = serial.Serial(
-                self.serial_port,
-                self.serial_baud_rate,
-                timeout=self.serial_timeout_sec,
-            )
-            self._serial.reset_input_buffer()
-            self._serial_timer = self.create_timer(self.serial_poll_sec, self._read_serial_once)
-            self.get_logger().info(
-                f'Reading encoders from Arduino serial {self.serial_port} @ {self.serial_baud_rate} bps'
-            )
         except Exception as exc:
-            self.get_logger().error(
-                f'Unable to open serial input ({self.serial_port}): {exc}. '
-                f'Falling back to topic input on {self.input_topic}.'
+            self.get_logger().error(f'pyserial is not available: {exc}')
+            return
+
+        attempted = self._candidate_ports()
+        for candidate in attempted:
+            try:
+                self._serial = serial.Serial(
+                    candidate,
+                    self.serial_baud_rate,
+                    timeout=self.serial_timeout_sec,
+                )
+                self._serial.reset_input_buffer()
+                self.serial_port = candidate
+                self.get_logger().info(
+                    f'Reading encoders from Arduino serial {candidate} @ {self.serial_baud_rate} bps'
+                )
+                return
+            except Exception:
+                continue
+
+        self._serial = None
+        if attempted:
+            self.get_logger().warn(
+                f'Unable to open Arduino serial port. Retrying in {self.serial_reconnect_sec:.1f}s. '
+                f'Candidates: {attempted}'
             )
-            self.use_serial_input = False
-            self.subscription = self.create_subscription(
-                Float32MultiArray,
-                self.input_topic,
-                self._encoder_callback,
-                10,
-            )
+
+    def _serial_worker(self) -> None:
+        now = time.monotonic()
+        if self._serial is None:
+            if now - self._last_serial_attempt_sec >= self.serial_reconnect_sec:
+                self._last_serial_attempt_sec = now
+                self._try_open_serial()
+            return
+
+        self._read_serial_once()
 
     def _read_serial_once(self) -> None:
         """Read one CSV line from Arduino and publish it as ArmServoCommand."""
@@ -145,6 +183,11 @@ class ArmEncoderBridgeNode(Node):
             line = self._serial.readline().decode('utf-8', errors='ignore').strip()
         except Exception as exc:
             self.get_logger().warn(f'Serial read failed: {exc}')
+            try:
+                self._serial.close()
+            except Exception:
+                pass
+            self._serial = None
             return
 
         if not line:
