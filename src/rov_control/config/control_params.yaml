@@ -1,18 +1,27 @@
 arm_encoder_bridge_node:
   ros__parameters:
-    axis_count: 8
+    axis_count: 7
     input_topic: /rov/arm/encoder_values
     output_topic: /rov/arm/servo_command
-    axis_names: [base, shoulder, elbow, wrist_pitch, wrist_roll, wrist_yaw, tool_rotate, gripper]
-    scales: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-    offsets_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    servo_min_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    servo_max_deg: [180.0, 180.0, 180.0, 180.0, 180.0, 180.0, 180.0, 180.0]
+    axis_names: [base, shoulder, elbow, wrist_pitch, wrist_roll, wrist_yaw, gripper]
+    scales: [-1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    offsets_deg: [180.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    servo_min_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    servo_max_deg: [180.0, 180.0, 180.0, 180.0, 180.0, 180.0, 180.0]
+    use_serial_input: true
+    serial_port: /dev/serial/by-id/CHANGE_ME_TO_YOUR_ARDUINO
+    serial_baud_rate: 921600
+    serial_timeout_sec: 0.02
+    serial_poll_sec: 0.01
+    serial_reconnect_sec: 1.0
+    serial_auto_discover: true
 
 qgc_video_bridge_node:
   ros__parameters:
     input_topic: /rov/camera/image_compressed
     ffmpeg_path: ffmpeg
-    udp_host: 127.0.0.1
+    udp_host: 192.168.50.1
     udp_port: 5600
-    bitrate: 2500k
+    bitrate: 1200k
+    output_format: rtp
+    gop_size: 10

@@ -29,12 +29,22 @@ class QgcVideoBridgeNode(Node):
         self.declare_parameter('udp_host', '127.0.0.1')
         self.declare_parameter('udp_port', 5600)
         self.declare_parameter('bitrate', '2500k')
+        self.declare_parameter('output_format', 'h264')
+        self.declare_parameter('gop_size', 30)
 
         self.input_topic = str(self.get_parameter('input_topic').value)
         self.ffmpeg_path = str(self.get_parameter('ffmpeg_path').value)
         self.udp_host = str(self.get_parameter('udp_host').value)
         self.udp_port = int(self.get_parameter('udp_port').value)
         self.bitrate = str(self.get_parameter('bitrate').value)
+        self.output_format = str(self.get_parameter('output_format').value).lower()
+        self.gop_size = int(self.get_parameter('gop_size').value)
+
+        if self.output_format not in ('h264', 'mpegts', 'rtp'):
+            self.get_logger().warning(
+                f"Unsupported output_format '{self.output_format}'. Falling back to 'h264'."
+            )
+            self.output_format = 'h264'
 
         self._ffmpeg_process: Optional[subprocess.Popen] = None
         self._ffmpeg_stderr_thread: Optional[threading.Thread] = None
@@ -50,7 +60,7 @@ class QgcVideoBridgeNode(Node):
 
         self._start_ffmpeg()
         self.get_logger().info(
-            f'QGC bridge active: {self.input_topic} -> udp://{self.udp_host}:{self.udp_port}'
+            f'QGC bridge active: {self.input_topic} -> udp://{self.udp_host}:{self.udp_port} ({self.output_format})'
         )
 
     def _ffmpeg_command(self) -> List[str]:
@@ -59,11 +69,11 @@ class QgcVideoBridgeNode(Node):
         :return: A list of command arguments for ffmpeg.
         """
         udp_target = f'udp://{self.udp_host}:{self.udp_port}?pkt_size=1316'
-        return [
+        rtp_target = f'rtp://{self.udp_host}:{self.udp_port}?pkt_size=1200'
+        ffmpeg_cmd = [
             self.ffmpeg_path,
             '-loglevel',
             'error',
-            '-re',
             '-f',
             'mjpeg',
             '-i',
@@ -79,10 +89,54 @@ class QgcVideoBridgeNode(Node):
             'yuv420p',
             '-b:v',
             self.bitrate,
-            '-f',
-            'mpegts',
-            udp_target,
+            '-profile:v',
+            'baseline',
+            '-level',
+            '3.1',
+            '-g',
+            str(max(1, self.gop_size)),
+            '-keyint_min',
+            str(max(1, self.gop_size)),
+            '-bf',
+            '0',
+            '-sc_threshold',
+            '0',
+            '-fflags',
+            'nobuffer',
+            '-flags',
+            'low_delay',
+            '-flush_packets',
+            '1',
         ]
+
+        # Keep multiple output containers/protocols for QGC compatibility tuning.
+        if self.output_format == 'mpegts':
+            ffmpeg_cmd.extend([
+                '-muxdelay',
+                '0',
+                '-muxpreload',
+                '0',
+                '-f',
+                'mpegts',
+                udp_target,
+            ])
+        elif self.output_format == 'rtp':
+            ffmpeg_cmd.extend([
+                '-f',
+                'rtp',
+                '-payload_type',
+                '96',
+                rtp_target,
+            ])
+        else:
+            ffmpeg_cmd.extend([
+                '-f',
+                'h264',
+                udp_target,
+            ])
+
+        return ffmpeg_cmd
+
 
     def _start_ffmpeg(self) -> None:
         """

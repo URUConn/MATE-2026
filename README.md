@@ -68,7 +68,8 @@ sudo apt install -y \
   python3-opencv \
   ros-humble-cv-bridge \
   python3-pip \
-  ffmpeg
+  ffmpeg \
+  mavlink-router
 ```
 
 On the **onboard** machine (for servos):
@@ -127,8 +128,9 @@ Drive is handled outside of ROS by QGroundControl. To set up:
 ## 5) Video to QGroundControl (via ROS bridge)
 
 - `camera_node` publishes `/rov/camera/image_compressed` on onboard.
-- `qgc_video_bridge_node` on laptop subscribes and forwards to UDP `127.0.0.1:5600` using `ffmpeg`.
+- `qgc_video_bridge_node` on laptop subscribes and forwards low-latency H.264 over RTP to `udp_host:udp_port` (default port `5600`) using `ffmpeg`.
 - In QGroundControl, set video source to UDP and port `5600`.
+- If video does not decode in your QGC build, set `output_format: h264` in `src/rov_control/config/control_params.yaml` as fallback.
 
 Run onboard:
 
@@ -212,7 +214,21 @@ Onboard:
 ```bash
 cd ~/MATE2026
 source install/setup.bash
+export QGC_IP=<CONTROL_LAPTOP_IP>
 ros2 launch rov_onboard onboard_launch.py
+```
+
+`onboard_launch.py` now auto-starts MAVLink forwarding (`mavlink-routerd`) when `QGC_IP` is set
+or when `qgc_ip:=...` is passed directly:
+
+```bash
+ros2 launch rov_onboard onboard_launch.py qgc_ip:=<CONTROL_LAPTOP_IP> pix_serial:=/dev/ttyACM0 pix_baud:=115200
+```
+
+If needed, disable forwarding for bench tests:
+
+```bash
+ros2 launch rov_onboard onboard_launch.py enable_mavlink_forward:=false
 ```
 
 Laptop:

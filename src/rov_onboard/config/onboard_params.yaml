@@ -5,18 +5,17 @@ camera_node:
     frame_height: 720
     fps: 60
     publish_compressed: true
-    jpeg_quality: 50
+    jpeg_quality: 35
 
 arm_servo_node:
   ros__parameters:
-    axis_count: 8
+    axis_count: 7
     command_topic: /rov/arm/servo_command
-    axis_names: [base, shoulder, elbow, wrist_pitch, wrist_roll, wrist_yaw, tool_rotate, gripper]
-    servo_pins: [2, 3, 4, 5, 6, 7, 8, 9]
-    servo_min_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    servo_max_deg: [180.0, 180.0, 180.0, 180.0, 180.0, 180.0, 180.0, 180.0]
-    neutral_deg: [90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
+    axis_names: [base, shoulder, elbow, wrist_pitch, wrist_roll, wrist_yaw, gripper]
+    servo_pins: [2, 3, 4, 5, 6, 7, 8]
+    servo_min_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    servo_max_deg: [180.0, 180.0, 180.0, 180.0, 180.0, 180.0, 180.0]
+    neutral_deg: [90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
     command_timeout_sec: 0.5
-    use_pinpong: false
-    pinpong_board: uno
-    pinpong_port: /dev/ttyUSB0
+    use_pinpong: true
+    pinpong_platform: auto

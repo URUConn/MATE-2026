@@ -17,7 +17,7 @@ setup(
         (os.path.join('share', package_name, 'config'),
             glob(os.path.join('config', '*.yaml'))),
     ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'pyserial'],
     zip_safe=True,
     maintainer='URUC',
     maintainer_email='URUC.UCONN@gmail.com',
