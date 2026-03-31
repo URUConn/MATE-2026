@@ -19,7 +19,6 @@ DEFAULT_AXIS_NAMES = [
     'wrist_pitch',
     'wrist_roll',
     'wrist_yaw',
-    'tool_rotate',
     'gripper',
 ]
 
@@ -35,17 +34,17 @@ class ArmServoNode(Node):
         super().__init__('arm_servo_node')
 
         # Declare parameters with defaults
-        self.declare_parameter('axis_count', 8)
+        self.declare_parameter('axis_count', 7)
         self.declare_parameter('command_topic', '/rov/arm/servo_command')
         self.declare_parameter('axis_names', DEFAULT_AXIS_NAMES)
-        self.declare_parameter('servo_min_deg', [0.0] * 8)
-        self.declare_parameter('servo_max_deg', [180.0] * 8)
-        self.declare_parameter('neutral_deg', [90.0] * 8)
+        self.declare_parameter('servo_min_deg', [0.0] * 7)
+        self.declare_parameter('servo_max_deg', [180.0] * 7)
+        self.declare_parameter('neutral_deg', [90.0] * 7)
         self.declare_parameter('command_timeout_sec', 0.5)
         self.declare_parameter('use_pinpong', False)
         self.declare_parameter('pinpong_board', 'uno')
         self.declare_parameter('pinpong_port', '/dev/ttyUSB0')
-        self.declare_parameter('servo_pins', [2, 3, 4, 5, 6, 7, 8, 9])
+        self.declare_parameter('servo_pins', [2, 3, 4, 5, 6, 7, 8])
 
         self.axis_count = int(self.get_parameter('axis_count').value)
         self.command_topic = str(self.get_parameter('command_topic').value)

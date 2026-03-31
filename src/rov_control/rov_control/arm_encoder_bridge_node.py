@@ -1,9 +1,4 @@
-"""
-Arm Encoder Bridge Node
-
-This node accepts encoder values from a laptop-side source node and publishes
-servo angle commands for the onboard arm controller.
-"""
+"""Bridge Arduino encoder CSV data to arm servo commands."""
 
 from typing import List
 
@@ -20,7 +15,6 @@ DEFAULT_AXIS_NAMES = [
     'wrist_pitch',
     'wrist_roll',
     'wrist_yaw',
-    'tool_rotate',
     'gripper',
 ]
 
@@ -35,26 +29,42 @@ class ArmEncoderBridgeNode(Node):
         """
         super().__init__('arm_encoder_bridge_node')
 
-        self.declare_parameter('axis_count', 8)
+        self.declare_parameter('axis_count', 7)
         self.declare_parameter('input_topic', '/rov/arm/encoder_values')
         self.declare_parameter('output_topic', '/rov/arm/servo_command')
         self.declare_parameter('axis_names', DEFAULT_AXIS_NAMES)
-        self.declare_parameter('scales', [1.0] * 8)
-        self.declare_parameter('offsets_deg', [0.0] * 8)
-        self.declare_parameter('servo_min_deg', [0.0] * 8)
-        self.declare_parameter('servo_max_deg', [180.0] * 8)
+        self.declare_parameter('scales', [1.0] * 7)
+        self.declare_parameter('offsets_deg', [0.0] * 7)
+        self.declare_parameter('servo_min_deg', [0.0] * 7)
+        self.declare_parameter('servo_max_deg', [180.0] * 7)
+        self.declare_parameter('use_serial_input', True)
+        self.declare_parameter('serial_port', '/dev/ttyACM0')
+        self.declare_parameter('serial_baud_rate', 921600)
+        self.declare_parameter('serial_timeout_sec', 0.02)
+        self.declare_parameter('serial_poll_sec', 0.01)
 
         _ARM_SERVO_COMMAND_SIZE = 8
         self.axis_count = int(self.get_parameter('axis_count').value)
-        if self.axis_count != _ARM_SERVO_COMMAND_SIZE:
+        if self.axis_count > _ARM_SERVO_COMMAND_SIZE:
             self.get_logger().error(
-                f'Configured axis_count {self.axis_count} does not match '
+                f'Configured axis_count {self.axis_count} exceeds '
                 f'ArmServoCommand.target_deg size ({_ARM_SERVO_COMMAND_SIZE}). '
                 f'Overriding axis_count to {_ARM_SERVO_COMMAND_SIZE}.'
             )
             self.axis_count = _ARM_SERVO_COMMAND_SIZE
+        if self.axis_count < 1:
+            self.get_logger().error('axis_count must be >= 1. Overriding axis_count to 7.')
+            self.axis_count = 7
         self.input_topic = str(self.get_parameter('input_topic').value)
         self.output_topic = str(self.get_parameter('output_topic').value)
+        self.use_serial_input = bool(self.get_parameter('use_serial_input').value)
+        self.serial_port = str(self.get_parameter('serial_port').value)
+        self.serial_baud_rate = int(self.get_parameter('serial_baud_rate').value)
+        self.serial_timeout_sec = float(self.get_parameter('serial_timeout_sec').value)
+        self.serial_poll_sec = float(self.get_parameter('serial_poll_sec').value)
+
+        self._serial = None
+        self._serial_timer = None
 
         self.axis_names = self._normalize_list(
             list(self.get_parameter('axis_names').value),
@@ -83,17 +93,77 @@ class ArmEncoderBridgeNode(Node):
         )
 
         self.publisher = self.create_publisher(ArmServoCommand, self.output_topic, 10)
-        self.subscription = self.create_subscription(
-            Float32MultiArray,
-            self.input_topic,
-            self._encoder_callback,
-            10,
-        )
+
+        if self.use_serial_input:
+            self._setup_serial_reader()
+        else:
+            self.subscription = self.create_subscription(
+                Float32MultiArray,
+                self.input_topic,
+                self._encoder_callback,
+                10,
+            )
 
         self.get_logger().info(
-            f'Arm encoder bridge active: {self.input_topic} -> {self.output_topic} '
-            f'({self.axis_count} axes)'
+            f'Arm encoder bridge active: -> {self.output_topic} ({self.axis_count} axes)'
         )
+
+    def _setup_serial_reader(self) -> None:
+        """Open serial port and start periodic reads from Arduino CSV output."""
+        try:
+            import serial  # type: ignore
+
+            self._serial = serial.Serial(
+                self.serial_port,
+                self.serial_baud_rate,
+                timeout=self.serial_timeout_sec,
+            )
+            self._serial.reset_input_buffer()
+            self._serial_timer = self.create_timer(self.serial_poll_sec, self._read_serial_once)
+            self.get_logger().info(
+                f'Reading encoders from Arduino serial {self.serial_port} @ {self.serial_baud_rate} bps'
+            )
+        except Exception as exc:
+            self.get_logger().error(
+                f'Unable to open serial input ({self.serial_port}): {exc}. '
+                f'Falling back to topic input on {self.input_topic}.'
+            )
+            self.use_serial_input = False
+            self.subscription = self.create_subscription(
+                Float32MultiArray,
+                self.input_topic,
+                self._encoder_callback,
+                10,
+            )
+
+    def _read_serial_once(self) -> None:
+        """Read one CSV line from Arduino and publish it as ArmServoCommand."""
+        if self._serial is None:
+            return
+
+        try:
+            line = self._serial.readline().decode('utf-8', errors='ignore').strip()
+        except Exception as exc:
+            self.get_logger().warn(f'Serial read failed: {exc}')
+            return
+
+        if not line:
+            return
+
+        parts = [part.strip() for part in line.split(',')]
+        if len(parts) < self.axis_count:
+            self.get_logger().warn(
+                f'Expected at least {self.axis_count} CSV values from Arduino, got {len(parts)}: {line}'
+            )
+            return
+
+        try:
+            values = [float(parts[index]) for index in range(self.axis_count)]
+        except ValueError:
+            self.get_logger().warn(f'Invalid Arduino CSV frame: {line}')
+            return
+
+        self._publish_command(values)
 
     def _normalize_list(self, values: List[str], fallback: List[str], name: str) -> List[str]:
         """
@@ -139,11 +209,18 @@ class ArmEncoderBridgeNode(Node):
             )
             return
 
+        self._publish_command([float(msg.data[index]) for index in range(self.axis_count)])
+
+    def _publish_command(self, raw_values: List[float]) -> None:
+        """Apply scaling/clamping and publish arm command."""
+        if len(raw_values) < self.axis_count:
+            return
+
         command = ArmServoCommand()
         command.header.stamp = self.get_clock().now().to_msg()
 
         for index in range(self.axis_count):
-            raw_value = float(msg.data[index])
+            raw_value = float(raw_values[index])
             target = raw_value * self.scales[index] + self.offsets_deg[index]
             target = max(self.servo_min_deg[index], min(self.servo_max_deg[index], target))
             command.target_deg[index] = float(target)
