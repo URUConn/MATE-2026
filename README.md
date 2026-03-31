@@ -128,8 +128,9 @@ Drive is handled outside of ROS by QGroundControl. To set up:
 ## 5) Video to QGroundControl (via ROS bridge)
 
 - `camera_node` publishes `/rov/camera/image_compressed` on onboard.
-- `qgc_video_bridge_node` on laptop subscribes and forwards to UDP `127.0.0.1:5600` using `ffmpeg`.
+- `qgc_video_bridge_node` on laptop subscribes and forwards low-latency H.264 over RTP to `udp_host:udp_port` (default port `5600`) using `ffmpeg`.
 - In QGroundControl, set video source to UDP and port `5600`.
+- If video does not decode in your QGC build, set `output_format: h264` in `src/rov_control/config/control_params.yaml` as fallback.
 
 Run onboard:
 

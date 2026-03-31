@@ -40,6 +40,12 @@ class QgcVideoBridgeNode(Node):
         self.output_format = str(self.get_parameter('output_format').value).lower()
         self.gop_size = int(self.get_parameter('gop_size').value)
 
+        if self.output_format not in ('h264', 'mpegts', 'rtp'):
+            self.get_logger().warning(
+                f"Unsupported output_format '{self.output_format}'. Falling back to 'h264'."
+            )
+            self.output_format = 'h264'
+
         self._ffmpeg_process: Optional[subprocess.Popen] = None
         self._ffmpeg_stderr_thread: Optional[threading.Thread] = None
         self._frame_count = 0
@@ -63,6 +69,7 @@ class QgcVideoBridgeNode(Node):
         :return: A list of command arguments for ffmpeg.
         """
         udp_target = f'udp://{self.udp_host}:{self.udp_port}?pkt_size=1316'
+        rtp_target = f'rtp://{self.udp_host}:{self.udp_port}?pkt_size=1200'
         ffmpeg_cmd = [
             self.ffmpeg_path,
             '-loglevel',
@@ -102,7 +109,7 @@ class QgcVideoBridgeNode(Node):
             '1',
         ]
 
-        # QGC often prefers elementary H.264 over UDP; keep mpegts as fallback.
+        # Keep multiple output containers/protocols for QGC compatibility tuning.
         if self.output_format == 'mpegts':
             ffmpeg_cmd.extend([
                 '-muxdelay',
@@ -112,6 +119,14 @@ class QgcVideoBridgeNode(Node):
                 '-f',
                 'mpegts',
                 udp_target,
+            ])
+        elif self.output_format == 'rtp':
+            ffmpeg_cmd.extend([
+                '-f',
+                'rtp',
+                '-payload_type',
+                '96',
+                rtp_target,
             ])
         else:
             ffmpeg_cmd.extend([
