@@ -37,7 +37,7 @@ class ArmServoNode(Node):
         self.declare_parameter('neutral_deg', [90.0] * 7)
         self.declare_parameter('command_timeout_sec', 0.5)
         self.declare_parameter('use_pinpong', False)
-        self.declare_parameter('pinpong_platform', 'x86')
+        self.declare_parameter('pinpong_platform', 'auto')
         # Deprecated compatibility params from external-board workflow.
         self.declare_parameter('pinpong_board', '')
         self.declare_parameter('pinpong_port', '')
@@ -170,10 +170,24 @@ class ArmServoNode(Node):
         try:
             from pinpong.board import Board, Servo
 
-            Board(self.pinpong_platform).begin()
+            platform = self.pinpong_platform.strip()
+            board = None
+            if platform and platform.lower() != 'auto':
+                try:
+                    board = Board(platform)
+                    board.begin()
+                except Exception as exc:
+                    self.get_logger().warn(
+                        f'PinPong platform "{platform}" not supported ({exc}); trying auto-detect.'
+                    )
+
+            if board is None:
+                board = Board()
+                board.begin()
+
             servos = [Servo(pin) for pin in self.servo_pins]
             self.get_logger().info(
-                f'PinPong ready in direct mode on platform {self.pinpong_platform} '
+                f'PinPong ready in direct mode (platform={platform or "auto"}) '
                 f'with pins {self.servo_pins}'
             )
             return servos

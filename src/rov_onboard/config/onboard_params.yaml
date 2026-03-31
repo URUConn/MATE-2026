@@ -18,4 +18,4 @@ arm_servo_node:
     neutral_deg: [90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
     command_timeout_sec: 0.5
     use_pinpong: true
-    pinpong_platform: x86
+    pinpong_platform: auto
