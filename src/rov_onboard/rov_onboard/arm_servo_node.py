@@ -244,6 +244,8 @@ class ArmServoNode(Node):
         :return: None
         """
         angle_deg = self._clamp_angle(index, float(angle_deg))
+        # Some PinPong backends expect integer degrees and fail on float math/bit ops.
+        angle_cmd = int(round(angle_deg))
 
         if self._servo_driver is None:
             return
@@ -252,9 +254,9 @@ class ArmServoNode(Node):
         if servo is None:
             return
         if hasattr(servo, 'write_angle'):
-            servo.write_angle(angle_deg)
+            servo.write_angle(angle_cmd)
         elif hasattr(servo, 'write'):
-            servo.write(angle_deg)
+            servo.write(angle_cmd)
         else:
             # Avoid raising here so a mismatched Servo API does not crash the node.
             # Log the error once and skip further writes.
