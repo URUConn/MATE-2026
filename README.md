@@ -19,7 +19,8 @@ Control Laptop (Ubuntu + QGroundControl + ROS 2)          Onboard Computer (Ubun
       | UDP video :5600 from ROS bridge
 [rov_control/qgc_video_bridge_node] <-- ROS compressed image -- [rov_onboard/camera_node]
 
-[arm controller encoder USB] --/rov/arm/encoder_values--> [rov_control/arm_encoder_bridge_node]
+[arm controller encoder USB] --/rov/arm/encoder_values (J1..J5)--> [rov_control/arm_encoder_bridge_node]
+                     [joystick node] --/rov/arm/joystick_values (J6/J7)----^ 
                                                            |
                                                            '--/rov/arm/servo_command--> [rov_onboard/arm_servo_node -> PinPong servos]
 ```
@@ -44,13 +45,14 @@ Split into 2 main packages for the two hardware stacks, plus a shared messages p
 
 | Topic | Type | Direction | Purpose                                      |
 |---|---|---|----------------------------------------------|
-| `/rov/arm/encoder_values` | `std_msgs/Float32MultiArray` | Laptop local input | 8 encoder values from USB reader script/node |
-| `/rov/arm/servo_command` | `rov_msgs/ArmServoCommand` | Laptop -> Onboard | 8 servo target angles in degrees             |
+| `/rov/arm/encoder_values` | `std_msgs/Float32MultiArray` | Laptop local input | 5 encoder values (J1..J5) from USB reader |
+| `/rov/arm/joystick_values` | `std_msgs/Float32MultiArray` | Laptop local input | 2 joystick values in [-1, 1] for J6/J7 |
+| `/rov/arm/servo_command` | `rov_msgs/ArmServoCommand` | Laptop -> Onboard | 7 active servo target angles in degrees |
 | `/rov/camera/image_raw` | `sensor_msgs/Image` | Onboard -> Laptop | raw camera stream                            |
 | `/rov/camera/image_compressed` | `sensor_msgs/CompressedImage` | Onboard -> Laptop | compressed camera stream                     |
 
 `ArmServoCommand` axis order defaults to:
-`[base, shoulder, elbow, wrist_pitch, wrist_roll, wrist_yaw, tool_rotate, gripper]`
+`[base, shoulder, elbow, wrist_roll, wrist_pitch, wrist_yaw, gripper]`
 
 ---
 
@@ -162,14 +164,16 @@ ros2 topic hz /rov/camera/image_compressed
 
 ## 6) Arm Control Path Setup
 
-### 6.1 Encoder publisher contract (laptop)
+### 6.1 Encoder + joystick contract (laptop)
 
-There is a script/node that reads 8 encoder values from USB and publishes to ROS topic:
-- topic: `/rov/arm/encoder_values`
-- type: `std_msgs/Float32MultiArray`
-- `data` length: 8
+`arm_encoder_bridge_node` expects two control inputs:
+- encoder topic: `/rov/arm/encoder_values` (`std_msgs/Float32MultiArray`, data length 5 for J1..J5)
+- joystick topic: `/rov/arm/joystick_values` (`std_msgs/Float32MultiArray`, data length 2 for J6/J7 in `[-1, 1]`)
 
-These values can be degrees or raw units. Mapping to servo angles is done in `control_params.yaml` (`scales` and `offsets_deg`).
+Mapping to servo targets is configured in `src/rov_control/config/control_params.yaml` using:
+- `joint_to_servo_ratio`
+- `joint_min_deg` / `joint_max_deg`
+- `joystick_min_deg` / `joystick_max_deg`
 
 ### 6.2 Start arm bridge on laptop
 

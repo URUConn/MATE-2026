@@ -1,4 +1,4 @@
-"""Bridge Arduino encoder CSV data to arm servo commands."""
+"""Bridge arm encoder and joystick inputs to servo commands."""
 
 import glob
 import time
@@ -14,31 +14,45 @@ DEFAULT_AXIS_NAMES = [
     'base',
     'shoulder',
     'elbow',
-    'wrist_pitch',
     'wrist_roll',
+    'wrist_pitch',
     'wrist_yaw',
     'gripper',
 ]
 
+DEFAULT_JOINT_TO_SERVO_RATIO = [1.5454545455, 3.0, 3.0, 1.0, 1.0, 1.0, 1.0]
+DEFAULT_JOINT_MIN_DEG = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+DEFAULT_JOINT_MAX_DEG = [165.0, 119.0, 119.0, 270.0, 270.0, 360.0, 180.0]
+DEFAULT_POST_RATIO_JOINT_MIN_DEG = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+DEFAULT_POST_RATIO_JOINT_MAX_DEG = [165.0, 119.0, 119.0, 270.0, 270.0, 360.0, 180.0]
+DEFAULT_SERVO_MIN_DEG = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+DEFAULT_SERVO_MAX_DEG = [270.0, 357.0, 357.0, 270.0, 270.0, 360.0, 270.0]
+
 
 class ArmEncoderBridgeNode(Node):
-    """
-    Arm Encoder Bridge Node
-    """
+    """Convert control-side inputs into `ArmServoCommand` targets."""
+
     def __init__(self) -> None:
-        """
-        Constructor
-        """
         super().__init__('arm_encoder_bridge_node')
 
         self.declare_parameter('axis_count', 7)
+        self.declare_parameter('encoder_axis_count', 5)
         self.declare_parameter('input_topic', '/rov/arm/encoder_values')
+        self.declare_parameter('joystick_topic', '/rov/arm/joystick_values')
         self.declare_parameter('output_topic', '/rov/arm/servo_command')
         self.declare_parameter('axis_names', DEFAULT_AXIS_NAMES)
-        self.declare_parameter('scales', [1.0] * 7)
-        self.declare_parameter('offsets_deg', [0.0] * 7)
-        self.declare_parameter('servo_min_deg', [0.0] * 7)
-        self.declare_parameter('servo_max_deg', [180.0] * 7)
+        self.declare_parameter('input_scales', [1.0] * 7)
+        self.declare_parameter('input_offsets_deg', [0.0] * 7)
+        self.declare_parameter('joint_to_servo_ratio', DEFAULT_JOINT_TO_SERVO_RATIO)
+        self.declare_parameter('joint_min_deg', DEFAULT_JOINT_MIN_DEG)
+        self.declare_parameter('joint_max_deg', DEFAULT_JOINT_MAX_DEG)
+        self.declare_parameter('post_ratio_joint_min_deg', DEFAULT_POST_RATIO_JOINT_MIN_DEG)
+        self.declare_parameter('post_ratio_joint_max_deg', DEFAULT_POST_RATIO_JOINT_MAX_DEG)
+        self.declare_parameter('servo_min_deg', DEFAULT_SERVO_MIN_DEG)
+        self.declare_parameter('servo_max_deg', DEFAULT_SERVO_MAX_DEG)
+        self.declare_parameter('joystick_min_deg', DEFAULT_JOINT_MIN_DEG)
+        self.declare_parameter('joystick_max_deg', DEFAULT_JOINT_MAX_DEG)
+        self.declare_parameter('joystick_defaults', [0.0, 0.0])
         self.declare_parameter('use_serial_input', True)
         self.declare_parameter('serial_port', '/dev/ttyACM0')
         self.declare_parameter('serial_baud_rate', 921600)
@@ -47,19 +61,23 @@ class ArmEncoderBridgeNode(Node):
         self.declare_parameter('serial_reconnect_sec', 1.0)
         self.declare_parameter('serial_auto_discover', True)
 
-        _ARM_SERVO_COMMAND_SIZE = 8
+        command_size = 8
         self.axis_count = int(self.get_parameter('axis_count').value)
-        if self.axis_count > _ARM_SERVO_COMMAND_SIZE:
-            self.get_logger().error(
-                f'Configured axis_count {self.axis_count} exceeds '
-                f'ArmServoCommand.target_deg size ({_ARM_SERVO_COMMAND_SIZE}). '
-                f'Overriding axis_count to {_ARM_SERVO_COMMAND_SIZE}.'
-            )
-            self.axis_count = _ARM_SERVO_COMMAND_SIZE
         if self.axis_count < 1:
-            self.get_logger().error('axis_count must be >= 1. Overriding axis_count to 7.')
+            self.get_logger().warn('axis_count must be >= 1, using 7')
             self.axis_count = 7
+        if self.axis_count > command_size:
+            self.get_logger().warn(
+                f'axis_count {self.axis_count} exceeds ArmServoCommand size {command_size}, '
+                f'using {command_size}'
+            )
+            self.axis_count = command_size
+
+        self.encoder_axis_count = int(self.get_parameter('encoder_axis_count').value)
+        self.encoder_axis_count = max(0, min(self.encoder_axis_count, self.axis_count))
+
         self.input_topic = str(self.get_parameter('input_topic').value)
+        self.joystick_topic = str(self.get_parameter('joystick_topic').value)
         self.output_topic = str(self.get_parameter('output_topic').value)
         self.use_serial_input = bool(self.get_parameter('use_serial_input').value)
         self.serial_port = str(self.get_parameter('serial_port').value)
@@ -69,41 +87,95 @@ class ArmEncoderBridgeNode(Node):
         self.serial_reconnect_sec = float(self.get_parameter('serial_reconnect_sec').value)
         self.serial_auto_discover = bool(self.get_parameter('serial_auto_discover').value)
 
-        self._serial = None
-        self._serial_timer = None
-        self._last_serial_attempt_sec = 0.0
-
         self.axis_names = self._normalize_list(
             list(self.get_parameter('axis_names').value),
             DEFAULT_AXIS_NAMES,
             'axis_names',
         )
-        self.scales = self._normalize_float_list(
-            list(self.get_parameter('scales').value),
+        self.input_scales = self._normalize_float_list(
+            list(self.get_parameter('input_scales').value),
             [1.0] * self.axis_count,
-            'scales',
+            'input_scales',
         )
-        self.offsets_deg = self._normalize_float_list(
-            list(self.get_parameter('offsets_deg').value),
+        self.input_offsets_deg = self._normalize_float_list(
+            list(self.get_parameter('input_offsets_deg').value),
             [0.0] * self.axis_count,
-            'offsets_deg',
+            'input_offsets_deg',
+        )
+        self.joint_to_servo_ratio = self._normalize_float_list(
+            list(self.get_parameter('joint_to_servo_ratio').value),
+            DEFAULT_JOINT_TO_SERVO_RATIO,
+            'joint_to_servo_ratio',
+        )
+        self.joint_min_deg = self._normalize_float_list(
+            list(self.get_parameter('joint_min_deg').value),
+            DEFAULT_JOINT_MIN_DEG,
+            'joint_min_deg',
+        )
+        self.joint_max_deg = self._normalize_float_list(
+            list(self.get_parameter('joint_max_deg').value),
+            DEFAULT_JOINT_MAX_DEG,
+            'joint_max_deg',
+        )
+        self.post_ratio_joint_min_deg = self._normalize_float_list(
+            list(self.get_parameter('post_ratio_joint_min_deg').value),
+            DEFAULT_POST_RATIO_JOINT_MIN_DEG,
+            'post_ratio_joint_min_deg',
+        )
+        self.post_ratio_joint_max_deg = self._normalize_float_list(
+            list(self.get_parameter('post_ratio_joint_max_deg').value),
+            DEFAULT_POST_RATIO_JOINT_MAX_DEG,
+            'post_ratio_joint_max_deg',
         )
         self.servo_min_deg = self._normalize_float_list(
             list(self.get_parameter('servo_min_deg').value),
-            [0.0] * self.axis_count,
+            DEFAULT_SERVO_MIN_DEG,
             'servo_min_deg',
         )
         self.servo_max_deg = self._normalize_float_list(
             list(self.get_parameter('servo_max_deg').value),
-            [180.0] * self.axis_count,
+            DEFAULT_SERVO_MAX_DEG,
             'servo_max_deg',
         )
+        self.joystick_min_deg = self._normalize_float_list(
+            list(self.get_parameter('joystick_min_deg').value),
+            DEFAULT_JOINT_MIN_DEG,
+            'joystick_min_deg',
+        )
+        self.joystick_max_deg = self._normalize_float_list(
+            list(self.get_parameter('joystick_max_deg').value),
+            DEFAULT_JOINT_MAX_DEG,
+            'joystick_max_deg',
+        )
+
+        joystick_axes = self.axis_count - self.encoder_axis_count
+        self.joystick_defaults = self._normalize_float_list(
+            list(self.get_parameter('joystick_defaults').value),
+            [0.0] * joystick_axes,
+            'joystick_defaults',
+            expected_len=joystick_axes,
+        )
+        self._joystick_values: List[float] = list(self.joystick_defaults)
 
         self.publisher = self.create_publisher(ArmServoCommand, self.output_topic, 10)
 
-        if self.use_serial_input:
+        self.joystick_subscription = None
+        if joystick_axes > 0:
+            self.joystick_subscription = self.create_subscription(
+                Float32MultiArray,
+                self.joystick_topic,
+                self._joystick_callback,
+                10,
+            )
+
+        self.subscription = None
+        self._serial = None
+        self._serial_timer = None
+        self._last_serial_attempt_sec = 0.0
+
+        if self.use_serial_input and self.encoder_axis_count > 0:
             self._setup_serial_reader()
-        else:
+        elif self.encoder_axis_count > 0:
             self.subscription = self.create_subscription(
                 Float32MultiArray,
                 self.input_topic,
@@ -112,11 +184,12 @@ class ArmEncoderBridgeNode(Node):
             )
 
         self.get_logger().info(
-            f'Arm encoder bridge active: -> {self.output_topic} ({self.axis_count} axes)'
+            'Arm encoder bridge active: '
+            f'encoders={self.encoder_axis_count}, joystick_axes={joystick_axes}, '
+            f'output={self.output_topic}'
         )
 
     def _setup_serial_reader(self) -> None:
-        """Start periodic serial polling with automatic reconnect."""
         self._serial_timer = self.create_timer(self.serial_poll_sec, self._serial_worker)
         self._serial_worker()
 
@@ -140,8 +213,7 @@ class ArmEncoderBridgeNode(Node):
             self.get_logger().error(f'pyserial is not available: {exc}')
             return
 
-        attempted = self._candidate_ports()
-        for candidate in attempted:
+        for candidate in self._candidate_ports():
             try:
                 self._serial = serial.Serial(
                     candidate,
@@ -151,22 +223,20 @@ class ArmEncoderBridgeNode(Node):
                 self._serial.reset_input_buffer()
                 self.serial_port = candidate
                 self.get_logger().info(
-                    f'Reading encoders from Arduino serial {candidate} @ {self.serial_baud_rate} bps'
+                    f'Reading encoders from {candidate} @ {self.serial_baud_rate} bps'
                 )
                 return
             except Exception:
                 continue
 
         self._serial = None
-        if attempted:
-            self.get_logger().warn(
-                f'Unable to open Arduino serial port. Retrying in {self.serial_reconnect_sec:.1f}s. '
-                f'Candidates: {attempted}'
-            )
+        self.get_logger().warn(
+            f'Unable to open encoder serial port. Retrying in {self.serial_reconnect_sec:.1f}s.'
+        )
 
     def _serial_worker(self) -> None:
-        now = time.monotonic()
         if self._serial is None:
+            now = time.monotonic()
             if now - self._last_serial_attempt_sec >= self.serial_reconnect_sec:
                 self._last_serial_attempt_sec = now
                 self._try_open_serial()
@@ -175,7 +245,6 @@ class ArmEncoderBridgeNode(Node):
         self._read_serial_once()
 
     def _read_serial_once(self) -> None:
-        """Read one CSV line from Arduino and publish it as ArmServoCommand."""
         if self._serial is None:
             return
 
@@ -194,28 +263,21 @@ class ArmEncoderBridgeNode(Node):
             return
 
         parts = [part.strip() for part in line.split(',')]
-        if len(parts) < self.axis_count:
+        if len(parts) < self.encoder_axis_count:
             self.get_logger().warn(
-                f'Expected at least {self.axis_count} CSV values from Arduino, got {len(parts)}: {line}'
+                f'Expected at least {self.encoder_axis_count} encoder values, got {len(parts)}: {line}'
             )
             return
 
         try:
-            values = [float(parts[index]) for index in range(self.axis_count)]
+            encoder_values = [float(parts[index]) for index in range(self.encoder_axis_count)]
         except ValueError:
-            self.get_logger().warn(f'Invalid Arduino CSV frame: {line}')
+            self.get_logger().warn(f'Invalid encoder CSV frame: {line}')
             return
 
-        self._publish_command(values)
+        self._publish_from_inputs(encoder_values)
 
     def _normalize_list(self, values: List[str], fallback: List[str], name: str) -> List[str]:
-        """
-        Normalizes a list of string parameters to match the expected axis count.
-        :param values: The list of values to normalize.
-        :param fallback: The fallback list to use if the input list is invalid.
-        :param name: The name of the parameter (for logging purposes).
-        :return: A list of strings normalized to the axis count.
-        """
         if len(values) != self.axis_count:
             self.get_logger().warn(
                 f'Parameter {name} length {len(values)} does not match axis_count '
@@ -224,59 +286,91 @@ class ArmEncoderBridgeNode(Node):
             values = list(fallback)
         return values[: self.axis_count]
 
-    def _normalize_float_list(self, values: List[float], fallback: List[float], name: str) -> List[float]:
-        """
-        Normalizes a list of float values to match the expected axis count.
-        :param values: The list of float values to normalize.
-        :param fallback: The fallback list to use if the input list is invalid.
-        :param name: The name of the parameter (for logging purposes).
-        :return: A list of floats normalized to the axis count.
-        """
-        if len(values) != self.axis_count:
+    def _normalize_float_list(
+        self,
+        values: List[float],
+        fallback: List[float],
+        name: str,
+        expected_len: int = -1,
+    ) -> List[float]:
+        target_len = self.axis_count if expected_len < 0 else expected_len
+        if len(values) != target_len:
             self.get_logger().warn(
-                f'Parameter {name} length {len(values)} does not match axis_count '
-                f'{self.axis_count}. Using defaults.'
+                f'Parameter {name} length {len(values)} does not match expected length '
+                f'{target_len}. Using defaults.'
             )
             values = list(fallback)
-        return [float(v) for v in values[: self.axis_count]]
+        return [float(v) for v in values[:target_len]]
 
-    def _encoder_callback(self, msg: Float32MultiArray) -> None:
-        """
-        Callback function executed when an encoder command is received.
-        :param msg: The incoming message containing encoder values for each axis.
-        :return: None
-        """
-        if len(msg.data) < self.axis_count:
+    def _clamp(self, value: float, min_value: float, max_value: float) -> float:
+        return max(min_value, min(max_value, value))
+
+    def _joystick_callback(self, msg: Float32MultiArray) -> None:
+        joystick_axes = self.axis_count - self.encoder_axis_count
+        if joystick_axes <= 0:
+            return
+
+        if len(msg.data) < joystick_axes:
             self.get_logger().warn(
-                f'Expected {self.axis_count} encoder values, received {len(msg.data)}'
+                f'Expected {joystick_axes} joystick values, received {len(msg.data)}'
             )
             return
 
-        self._publish_command([float(msg.data[index]) for index in range(self.axis_count)])
+        self._joystick_values = [
+            self._clamp(float(msg.data[index]), -1.0, 1.0)
+            for index in range(joystick_axes)
+        ]
 
-    def _publish_command(self, raw_values: List[float]) -> None:
-        """Apply scaling/clamping and publish arm command."""
-        if len(raw_values) < self.axis_count:
+    def _encoder_callback(self, msg: Float32MultiArray) -> None:
+        if len(msg.data) < self.encoder_axis_count:
+            self.get_logger().warn(
+                f'Expected {self.encoder_axis_count} encoder values, received {len(msg.data)}'
+            )
+            return
+
+        encoder_values = [float(msg.data[index]) for index in range(self.encoder_axis_count)]
+        self._publish_from_inputs(encoder_values)
+
+    def _joystick_to_joint_deg(self, axis_index: int, value: float) -> float:
+        ratio = (self._clamp(value, -1.0, 1.0) + 1.0) * 0.5
+        min_deg = self.joystick_min_deg[axis_index]
+        max_deg = self.joystick_max_deg[axis_index]
+        return min_deg + ratio * (max_deg - min_deg)
+
+    def _publish_from_inputs(self, encoder_values: List[float]) -> None:
+        if len(encoder_values) < self.encoder_axis_count:
             return
 
         command = ArmServoCommand()
         command.header.stamp = self.get_clock().now().to_msg()
 
         for index in range(self.axis_count):
-            raw_value = float(raw_values[index])
-            target = raw_value * self.scales[index] + self.offsets_deg[index]
-            target = max(self.servo_min_deg[index], min(self.servo_max_deg[index], target))
-            command.target_deg[index] = float(target)
+            if index < self.encoder_axis_count:
+                raw_value = float(encoder_values[index])
+            else:
+                joystick_index = index - self.encoder_axis_count
+                joystick_value = self.joystick_defaults[joystick_index]
+                if joystick_index < len(self._joystick_values):
+                    joystick_value = self._joystick_values[joystick_index]
+                raw_value = self._joystick_to_joint_deg(index, joystick_value)
+
+            joint_value = raw_value * self.input_scales[index] + self.input_offsets_deg[index]
+            joint_value = self._clamp(joint_value, self.joint_min_deg[index], self.joint_max_deg[index])
+
+            ratio = self.joint_to_servo_ratio[index]
+            servo_target = joint_value * ratio
+
+            post_min = self.post_ratio_joint_min_deg[index] * ratio
+            post_max = self.post_ratio_joint_max_deg[index] * ratio
+            servo_target = self._clamp(servo_target, min(post_min, post_max), max(post_min, post_max))
+
+            servo_target = self._clamp(servo_target, self.servo_min_deg[index], self.servo_max_deg[index])
+            command.target_deg[index] = float(servo_target)
 
         self.publisher.publish(command)
 
 
 def main(args=None) -> None:
-    """
-    Main function
-    :param args: Arguments passed from the command line.
-    :return: None
-    """
     rclpy.init(args=args)
     node = ArmEncoderBridgeNode()
     try:

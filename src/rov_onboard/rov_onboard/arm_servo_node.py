@@ -11,108 +11,116 @@ DEFAULT_AXIS_NAMES = [
     'base',
     'shoulder',
     'elbow',
-    'wrist_pitch',
     'wrist_roll',
+    'wrist_pitch',
     'wrist_yaw',
     'gripper',
 ]
+DEFAULT_SERVO_MIN_DEG = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+DEFAULT_SERVO_MAX_DEG = [270.0, 357.0, 357.0, 270.0, 270.0, 360.0, 270.0]
+DEFAULT_NEUTRAL_DEG = [82.5, 59.5, 59.5, 135.0, 135.0, 180.0, 90.0]
+DEFAULT_SERVO_PINS = [2, 3, 4, 5, 6, 7, 8]
 
 
 class ArmServoNode(Node):
-    """
-    Arm Servo Node
-    """
+    """Drive arm servos from `ArmServoCommand` topic values."""
+
     def __init__(self) -> None:
-        """
-        Constructor for Arm Servo Node
-        """
         super().__init__('arm_servo_node')
 
-        # Declare parameters with defaults
         self.declare_parameter('axis_count', 7)
         self.declare_parameter('command_topic', '/rov/arm/servo_command')
         self.declare_parameter('axis_names', DEFAULT_AXIS_NAMES)
-        self.declare_parameter('servo_min_deg', [0.0] * 7)
-        self.declare_parameter('servo_max_deg', [180.0] * 7)
-        self.declare_parameter('neutral_deg', [90.0] * 7)
+        self.declare_parameter('servo_pins', DEFAULT_SERVO_PINS)
+        self.declare_parameter('servo_min_deg', DEFAULT_SERVO_MIN_DEG)
+        self.declare_parameter('servo_max_deg', DEFAULT_SERVO_MAX_DEG)
+        self.declare_parameter('neutral_deg', DEFAULT_NEUTRAL_DEG)
         self.declare_parameter('command_timeout_sec', 0.5)
         self.declare_parameter('use_pinpong', False)
         self.declare_parameter('pinpong_platform', 'auto')
-        # Deprecated compatibility params from external-board workflow.
-        self.declare_parameter('pinpong_board', '')
-        self.declare_parameter('pinpong_port', '')
-        self.declare_parameter('servo_pins', [2, 3, 4, 5, 6, 7, 8])
 
         self.axis_count = int(self.get_parameter('axis_count').value)
+        self.axis_count = max(1, min(self.axis_count, len(DEFAULT_AXIS_NAMES)))
         self.command_topic = str(self.get_parameter('command_topic').value)
         self.command_timeout_sec = float(self.get_parameter('command_timeout_sec').value)
         self.use_pinpong = bool(self.get_parameter('use_pinpong').value)
         self.pinpong_platform = str(self.get_parameter('pinpong_platform').value)
-        self._legacy_pinpong_board = str(self.get_parameter('pinpong_board').value)
-        self._legacy_pinpong_port = str(self.get_parameter('pinpong_port').value)
-        if self._legacy_pinpong_board or self._legacy_pinpong_port:
-            self.get_logger().warn(
-                'pinpong_board/pinpong_port are deprecated and ignored. '
-                f'Using direct PinPong platform mode: {self.pinpong_platform}.'
-            )
 
         self.axis_names = self._normalize_list(
             list(self.get_parameter('axis_names').value),
             DEFAULT_AXIS_NAMES,
             'axis_names',
         )
-        if len(self.axis_names) != self.axis_count:
-            self.get_logger().warn(
-                f"Configured axis_names length ({len(self.axis_names)}) does not match "
-                f"axis_count ({self.axis_count})."
-            )
-        self.get_logger().debug(f"Arm servo axis order: {self.axis_names}")
+        self.servo_pins = self._normalize_int_list(
+            list(self.get_parameter('servo_pins').value),
+            DEFAULT_SERVO_PINS,
+            'servo_pins',
+        )
         self.servo_min_deg = self._normalize_float_list(
             list(self.get_parameter('servo_min_deg').value),
-            [0.0] * self.axis_count,
+            DEFAULT_SERVO_MIN_DEG,
             'servo_min_deg',
         )
         self.servo_max_deg = self._normalize_float_list(
             list(self.get_parameter('servo_max_deg').value),
-            [180.0] * self.axis_count,
+            DEFAULT_SERVO_MAX_DEG,
             'servo_max_deg',
         )
         self.neutral_deg = self._normalize_float_list(
             list(self.get_parameter('neutral_deg').value),
-            [90.0] * self.axis_count,
+            DEFAULT_NEUTRAL_DEG,
             'neutral_deg',
-        )
-        self.servo_pins = self._normalize_int_list(
-            list(self.get_parameter('servo_pins').value),
-            [2, 3, 4, 5, 6, 7, 8],
-            'servo_pins',
         )
 
         self._servo_driver = self._create_servo_driver()
+        self._servo_api_error_logged = False
         self._last_command_time = self.get_clock().now()
         self._timed_out = False
 
-        # Subscribe to ROS topic
         self.subscription = self.create_subscription(
             ArmServoCommand,
             self.command_topic,
             self._command_callback,
             10,
         )
-
-        # Start timeout timer
         self.timer = self.create_timer(0.1, self._check_timeout)
 
         self.get_logger().info(
-            f'Arm servo node active on {self.command_topic} ({self.axis_count} axes)'
+            f'Arm servo node active on {self.command_topic} ({self.axis_count} axes: {self.axis_names})'
         )
+
+    def _normalize_list(self, values: List[str], fallback: List[str], name: str) -> List[str]:
+        if len(values) != self.axis_count:
+            self.get_logger().warn(
+                f'Parameter {name} length {len(values)} does not match axis_count '
+                f'{self.axis_count}. Using defaults.'
+            )
+            values = list(fallback)
+        return values[: self.axis_count]
+
+    def _normalize_float_list(self, values: List[float], fallback: List[float], name: str) -> List[float]:
+        if len(values) != self.axis_count:
+            self.get_logger().warn(
+                f'Parameter {name} length {len(values)} does not match axis_count '
+                f'{self.axis_count}. Using defaults.'
+            )
+            values = list(fallback)
+        return [float(v) for v in values[: self.axis_count]]
+
+    def _normalize_int_list(self, values: List[int], fallback: List[int], name: str) -> List[int]:
+        if len(values) != self.axis_count:
+            self.get_logger().warn(
+                f'Parameter {name} length {len(values)} does not match axis_count '
+                f'{self.axis_count}. Using defaults.'
+            )
+            values = list(fallback)
+        return [int(v) for v in values[: self.axis_count]]
 
     def _build_servo(self, pin: int):
         """Create one Servo instance using API variants seen across PinPong versions."""
-        from pinpong.board import Servo, Pin
+        from pinpong.board import Pin, Servo
 
         errors = []
-
         try:
             return Servo(pin)
         except Exception as exc:
@@ -125,68 +133,13 @@ class ArmServoNode(Node):
 
         raise RuntimeError('; '.join(errors))
 
-    def _normalize_list(self, values: List[str], fallback: List[str], name: str) -> List[str]:
-        """
-        Normalizes a list parameter to match the expected axis count, using fallback values if necessary.
-        :param values: The list of values to normalize.
-        :param fallback: The fallback list to use if the input list is invalid.
-        :param name: The name of the parameter (for logging purposes).
-        :return: A normalized list of values.
-        """
-        if len(values) != self.axis_count:
-            self.get_logger().warn(
-                f'Parameter {name} length {len(values)} does not match axis_count '
-                f'{self.axis_count}. Using defaults.'
-            )
-            values = list(fallback)
-        return values[: self.axis_count]
-
-    def _normalize_float_list(self, values: List[float], fallback: List[float], name: str) -> List[float]:
-        """
-        Normalizes a list of float values to match the expected axis count, using fallback values if necessary.
-        :param values: The list of float values to normalize.
-        :param fallback: The fallback list to use if the input list is invalid.
-        :param name: The name of the parameter (for logging purposes).
-        :return: A normalized list of float values.
-        """
-
-        if len(values) != self.axis_count:
-            self.get_logger().warn(
-                f'Parameter {name} length {len(values)} does not match axis_count '
-                f'{self.axis_count}. Using defaults.'
-            )
-            values = list(fallback)
-        return [float(v) for v in values[: self.axis_count]]
-
-    def _normalize_int_list(self, values: List[int], fallback: List[int], name: str) -> List[int]:
-        """
-        Normalizes a list of integer values to match the expected axis count, using fallback values if necessary.
-        :param values: The list of integer values to normalize.
-        :param fallback: The fallback list to use if the input list is invalid.
-        :param name: The name of the parameter (for logging purposes).
-        :return: A normalized list of integer values.
-        """
-        if len(values) != self.axis_count:
-            self.get_logger().warn(
-                f'Parameter {name} length {len(values)} does not match axis_count '
-                f'{self.axis_count}. Using defaults.'
-            )
-            values = list(fallback)
-        return [int(v) for v in values[: self.axis_count]]
-
     def _create_servo_driver(self):
-        """
-        Create the servo driver for direct onboard GPIO access.
-        :return: A list of servo objects if PinPong is available and enabled, otherwise None for dry-run mode.
-        """
-
-        # Check if pinpong is enabled in the config
         if not self.use_pinpong:
             self.get_logger().warn('use_pinpong=false, running in dry-run mode')
             return None
 
         try:
-            from pinpong.board import Board, Servo
+            from pinpong.board import Board
 
             platform = self.pinpong_platform.strip()
             board = None
@@ -208,16 +161,13 @@ class ArmServoNode(Node):
                 try:
                     servos.append(self._build_servo(pin))
                 except Exception as exc:
-                    self.get_logger().error(
-                        f'Failed to initialize Servo on pin {pin}: {exc}'
-                    )
+                    self.get_logger().error(f'Failed to initialize Servo on pin {pin}: {exc}')
                     servos.append(None)
 
             usable = sum(1 for servo in servos if servo is not None)
             if usable == 0:
-                raise RuntimeError(
-                    'No servo instances initialized. Check PinPong platform selection and pin support.'
-                )
+                raise RuntimeError('No servo instances initialized')
+
             self.get_logger().info(
                 f'PinPong ready in direct mode (platform={platform or "auto"}) '
                 f'with pins {self.servo_pins} (usable channels: {usable}/{len(servos)})'
@@ -228,24 +178,10 @@ class ArmServoNode(Node):
             return None
 
     def _clamp_angle(self, index: int, angle: float) -> float:
-        """
-        Clamp angle to the defined range.
-        :param index: The index of the servo axis.
-        :param angle: The angle in degrees to clamp.
-        :return: The clamped angle in degrees.
-        """
         return max(self.servo_min_deg[index], min(self.servo_max_deg[index], angle))
 
     def _write_servo(self, index: int, angle_deg: float) -> None:
-        """
-        Write servo data.
-        :param index: The index of the servo axis.
-        :param angle_deg: The target angle in degrees to write to the servo.
-        :return: None
-        """
-        angle_deg = self._clamp_angle(index, float(angle_deg))
-        # Some PinPong backends expect integer degrees and fail on float math/bit ops.
-        angle_cmd = int(round(angle_deg))
+        angle_cmd = int(round(self._clamp_angle(index, float(angle_deg))))
 
         if self._servo_driver is None:
             return
@@ -253,63 +189,49 @@ class ArmServoNode(Node):
         servo = self._servo_driver[index]
         if servo is None:
             return
+
         if hasattr(servo, 'write_angle'):
             servo.write_angle(angle_cmd)
-        elif hasattr(servo, 'write'):
+            return
+        if hasattr(servo, 'write'):
             servo.write(angle_cmd)
-        else:
-            # Avoid raising here so a mismatched Servo API does not crash the node.
-            # Log the error once and skip further writes.
-            if not getattr(self, '_servo_api_error_logged', False):
-                self.get_logger().error(
-                    'Unsupported PinPong Servo API for servo index %d: expected write_angle() or write()',
-                    index,
-                )
-                setattr(self, '_servo_api_error_logged', True)
             return
 
+        if not self._servo_api_error_logged:
+            self.get_logger().error(
+                f'Unsupported PinPong Servo API on axis {index}: expected write_angle() or write()'
+            )
+            self._servo_api_error_logged = True
+
     def _command_callback(self, msg: ArmServoCommand) -> None:
-        """
-        Callback function that is called when a command is received.
-        :param msg: The ArmServoCommand message containing the target angles for each servo axis.
-        :return: None
-        """
         self._last_command_time = self.get_clock().now()
         self._timed_out = False
 
         max_index = min(self.axis_count, len(msg.target_deg))
+        if self._servo_driver is not None:
+            max_index = min(max_index, len(self._servo_driver))
+
         for index in range(max_index):
             self._write_servo(index, msg.target_deg[index])
 
     def _check_timeout(self) -> None:
-        """
-        Check if the last command has timed out. If it has, drive all servos to the neutral position for safety.
-        :return: None
-        """
         elapsed = (self.get_clock().now() - self._last_command_time).nanoseconds / 1e9
-        if elapsed <= self.command_timeout_sec:
+        if elapsed <= self.command_timeout_sec or self._timed_out:
             return
 
-        if not self._timed_out:
-            self.get_logger().warn(
-                f'No arm command for {elapsed:.2f}s, driving to neutral pose for safety'
-            )
-            # Use the number of available servo drivers when PinPong is enabled to
-            # avoid indexing errors if axis_count and the driver list length differ.
-            max_index = self.axis_count
-            if self._servo_driver is not None:
-                max_index = min(max_index, len(self._servo_driver))
-            for index in range(max_index):
-                self._write_servo(index, self.neutral_deg[index])
-            self._timed_out = True
+        self.get_logger().warn(
+            f'No arm command for {elapsed:.2f}s, driving to neutral pose for safety'
+        )
+        max_index = self.axis_count
+        if self._servo_driver is not None:
+            max_index = min(max_index, len(self._servo_driver))
+
+        for index in range(max_index):
+            self._write_servo(index, self.neutral_deg[index])
+        self._timed_out = True
 
 
 def main(args=None) -> None:
-    """
-    Main entry point.
-    :param args: Arguments passed from the command line.
-    :return: None
-    """
     rclpy.init(args=args)
     node = ArmServoNode()
     try:
@@ -323,5 +245,4 @@ def main(args=None) -> None:
 
 if __name__ == '__main__':
     main()
-
 

@@ -1,13 +1,36 @@
 arm_encoder_bridge_node:
   ros__parameters:
     axis_count: 7
+    encoder_axis_count: 5
     input_topic: /rov/arm/encoder_values
+    joystick_topic: /rov/arm/joystick_values
     output_topic: /rov/arm/servo_command
-    axis_names: [base, shoulder, elbow, wrist_pitch, wrist_roll, wrist_yaw, gripper]
-    scales: [-1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-    offsets_deg: [180.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    axis_names: [base, shoulder, elbow, wrist_roll, wrist_pitch, wrist_yaw, gripper]
+
+    # Raw input transforms before joint clamp (used mainly for encoder polarity/zero trim).
+    input_scales: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    input_offsets_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+    # Servo command = joint command * joint_to_servo_ratio
+    joint_to_servo_ratio: [1.5454545455, 3.0, 3.0, 1.0, 1.0, 1.0, 1.0]
+
+    # Pre-ratio input guardrails (before joint_to_servo_ratio is applied).
+    joint_min_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    joint_max_deg: [270.0, 357.0, 357.0, 270.0, 270.0, 360.0, 270.0]
+
+    # Mechanical joint limits enforced after ratio conversion.
+    post_ratio_joint_min_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    post_ratio_joint_max_deg: [165.0, 119.0, 119.0, 270.0, 270.0, 360.0, 180.0]
+
+    # Servo capability clamp (output-space degrees).
     servo_min_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    servo_max_deg: [180.0, 180.0, 180.0, 180.0, 180.0, 180.0, 180.0]
+    servo_max_deg: [270.0, 357.0, 357.0, 270.0, 270.0, 360.0, 270.0]
+
+    # For joystick-only axes (J6/J7), map [-1, 1] to these ranges.
+    joystick_min_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    joystick_max_deg: [165.0, 119.0, 119.0, 270.0, 270.0, 360.0, 180.0]
+    joystick_defaults: [0.0, 0.0]
+
     use_serial_input: true
     serial_port: /dev/serial/by-id/CHANGE_ME_TO_YOUR_ARDUINO
     serial_baud_rate: 921600
