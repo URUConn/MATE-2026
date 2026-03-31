@@ -17,6 +17,6 @@ arm_servo_node:
     servo_max_deg: [180.0, 180.0, 180.0, 180.0, 180.0, 180.0, 180.0, 180.0]
     neutral_deg: [90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
     command_timeout_sec: 0.5
-    use_pinpong: false
+    use_pinpong: true
     pinpong_board: uno
     pinpong_port: /dev/ttyUSB0
