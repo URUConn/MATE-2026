@@ -21,6 +21,10 @@ arm_servo_node:
     continuous_span_deg: [90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
     rate_limit_deg_per_sec: [128.0, 124.0, 124.0, 158.0, 158.0, 235.0, 235.0]
     accel_limit_deg_per_sec2: [500.0, 460.0, 460.0, 620.0, 620.0, 1200.0, 1200.0]
+    rate_limit_max_dt_sec: 0.04
+    startup_ramp_sec: 3.0
+    startup_rate_limit_deg_per_sec: 18.0
+    startup_accel_limit_deg_per_sec2: 60.0
     reverse_min_interval_sec: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     servo_min_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     servo_max_deg: [165.0, 119.0, 119.0, 270.0, 270.0, 180.0, 180.0]
