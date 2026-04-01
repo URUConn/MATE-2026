@@ -37,6 +37,7 @@ class ArmServoNode(Node):
         self.declare_parameter('continuous_deadband', 0.08)
         self.declare_parameter('continuous_neutral_deg', [90.0] * 7)
         self.declare_parameter('continuous_span_deg', [90.0] * 7)
+        self.declare_parameter('rate_limit_deg_per_sec', [0.0] * 7)
         self.declare_parameter('servo_min_deg', [0.0] * 7)
         self.declare_parameter('servo_max_deg', [180.0] * 7)
         self.declare_parameter('neutral_deg', [90.0] * 7)
@@ -93,6 +94,11 @@ class ArmServoNode(Node):
             [90.0] * self.axis_count,
             'continuous_span_deg',
         )
+        self.rate_limit_deg_per_sec = self._normalize_float_list(
+            list(self.get_parameter('rate_limit_deg_per_sec').value),
+            [0.0] * self.axis_count,
+            'rate_limit_deg_per_sec',
+        )
         self.servo_min_deg = self._normalize_float_list(
             list(self.get_parameter('servo_min_deg').value),
             [0.0] * self.axis_count,
@@ -117,6 +123,9 @@ class ArmServoNode(Node):
         self._servo_driver = self._create_servo_driver()
         self._last_command_time = self.get_clock().now()
         self._timed_out = False
+        self._last_output_deg: List[float] = [float(self.neutral_deg[index]) for index in range(self.axis_count)]
+        now_sec = self.get_clock().now().nanoseconds / 1e9
+        self._last_output_time_sec: List[float] = [now_sec] * self.axis_count
 
         # Subscribe to ROS topic
         self.subscription = self.create_subscription(
@@ -217,6 +226,28 @@ class ArmServoNode(Node):
             cmd = 0.0
         return self.continuous_neutral_deg[index] + cmd * self.continuous_span_deg[index]
 
+    def _apply_rate_limit(self, index: int, target_deg: float) -> float:
+        """Limit per-axis output slew in deg/s. <=0 disables limiting for that axis."""
+        max_rate = float(self.rate_limit_deg_per_sec[index])
+        now_sec = self.get_clock().now().nanoseconds / 1e9
+
+        prev_deg = float(self._last_output_deg[index])
+        prev_sec = float(self._last_output_time_sec[index])
+
+        limited = float(target_deg)
+        if max_rate > 0.0:
+            dt = max(0.0, now_sec - prev_sec)
+            max_delta = max_rate * dt
+            delta = limited - prev_deg
+            if delta > max_delta:
+                limited = prev_deg + max_delta
+            elif delta < -max_delta:
+                limited = prev_deg - max_delta
+
+        self._last_output_deg[index] = float(limited)
+        self._last_output_time_sec[index] = now_sec
+        return limited
+
     def _create_servo_driver(self):
         """
         Create the servo driver for direct onboard GPIO access.
@@ -286,6 +317,8 @@ class ArmServoNode(Node):
         :param angle_deg: The target angle in degrees to write to the servo.
         :return: None
         """
+        angle_deg = self._clamp_angle(index, float(angle_deg))
+        angle_deg = self._apply_rate_limit(index, angle_deg)
         angle_deg = self._clamp_angle(index, float(angle_deg))
         # Some PinPong backends expect integer degrees and fail on float math/bit ops.
         angle_cmd = int(round(angle_deg))

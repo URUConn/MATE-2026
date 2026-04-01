@@ -18,6 +18,7 @@ arm_servo_node:
     continuous_deadband: 0.08
     continuous_neutral_deg: [90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
     continuous_span_deg: [90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
+    rate_limit_deg_per_sec: [120.0, 120.0, 120.0, 150.0, 150.0, 240.0, 240.0]
     servo_min_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     servo_max_deg: [165.0, 119.0, 119.0, 270.0, 270.0, 180.0, 180.0]
     neutral_deg: [90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
