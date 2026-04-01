@@ -324,9 +324,24 @@ class ArmServoNode(Node):
             limited = prev_deg
 
         error = limited - prev_deg
-        desired_vel = error / dt
-        if max_rate > 0.0:
-            desired_vel = max(-max_rate, min(max_rate, desired_vel))
+        direction = 0.0
+        if error > 0.0:
+            direction = 1.0
+        elif error < 0.0:
+            direction = -1.0
+
+        if direction == 0.0:
+            desired_vel = 0.0
+        else:
+            # Velocity target follows a simple trapezoidal/triangular profile:
+            # cap by max speed, and when close to target cap by braking distance.
+            desired_speed = abs(error) / dt
+            if max_rate > 0.0:
+                desired_speed = min(desired_speed, max_rate)
+            if max_accel > 0.0:
+                max_speed_to_stop = (2.0 * max_accel * abs(error)) ** 0.5
+                desired_speed = min(desired_speed, max_speed_to_stop)
+            desired_vel = direction * desired_speed
 
         vel = desired_vel
         if max_accel > 0.0:

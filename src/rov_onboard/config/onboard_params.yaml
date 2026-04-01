@@ -20,7 +20,7 @@ arm_servo_node:
     continuous_neutral_deg: [90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
     continuous_span_deg: [90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
     rate_limit_deg_per_sec: [128.0, 124.0, 124.0, 158.0, 158.0, 235.0, 235.0]
-    accel_limit_deg_per_sec2: [500.0, 460.0, 460.0, 620.0, 620.0, 1200.0, 1200.0]
+    accel_limit_deg_per_sec2: [260.0, 230.0, 230.0, 320.0, 320.0, 700.0, 700.0]
     rate_limit_max_dt_sec: 0.04
     startup_ramp_sec: 3.0
     startup_rate_limit_deg_per_sec: 18.0
