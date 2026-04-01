@@ -35,6 +35,7 @@ class ArmServoNode(Node):
         self.declare_parameter('offsets_deg', [0.0] * 7)
         self.declare_parameter('continuous_axes', [False] * 7)
         self.declare_parameter('continuous_deadband', 0.08)
+        self.declare_parameter('continuous_reverse_min_interval_sec', [0.0] * 7)
         self.declare_parameter('continuous_neutral_deg', [90.0] * 7)
         self.declare_parameter('continuous_span_deg', [90.0] * 7)
         self.declare_parameter('rate_limit_deg_per_sec', [0.0] * 7)
@@ -84,6 +85,11 @@ class ArmServoNode(Node):
             'continuous_axes',
         )
         self.continuous_deadband = float(self.get_parameter('continuous_deadband').value)
+        self.continuous_reverse_min_interval_sec = self._normalize_float_list(
+            list(self.get_parameter('continuous_reverse_min_interval_sec').value),
+            [0.0] * self.axis_count,
+            'continuous_reverse_min_interval_sec',
+        )
         self.continuous_neutral_deg = self._normalize_float_list(
             list(self.get_parameter('continuous_neutral_deg').value),
             [90.0] * self.axis_count,
@@ -126,6 +132,8 @@ class ArmServoNode(Node):
         self._last_output_deg: List[float] = [float(self.neutral_deg[index]) for index in range(self.axis_count)]
         now_sec = self.get_clock().now().nanoseconds / 1e9
         self._last_output_time_sec: List[float] = [now_sec] * self.axis_count
+        self._continuous_last_nonzero_sign: List[int] = [0] * self.axis_count
+        self._continuous_last_nonzero_time_sec: List[float] = [now_sec] * self.axis_count
 
         # Subscribe to ROS topic
         self.subscription = self.create_subscription(
@@ -221,9 +229,28 @@ class ArmServoNode(Node):
 
     def _continuous_command_to_angle(self, index: int, normalized_cmd: float) -> float:
         """Map normalized continuous-servo command [-1, 1] to servo driver angle."""
+        now_sec = self.get_clock().now().nanoseconds / 1e9
         cmd = max(-1.0, min(1.0, float(normalized_cmd)))
         if abs(cmd) < self.continuous_deadband:
             cmd = 0.0
+
+        sign = 0
+        if cmd > 0.0:
+            sign = 1
+        elif cmd < 0.0:
+            sign = -1
+
+        if sign != 0:
+            prev_sign = int(self._continuous_last_nonzero_sign[index])
+            prev_time = float(self._continuous_last_nonzero_time_sec[index])
+            min_interval = max(0.0, float(self.continuous_reverse_min_interval_sec[index]))
+
+            if prev_sign != 0 and sign != prev_sign and (now_sec - prev_time) < min_interval:
+                cmd = 0.0
+            else:
+                self._continuous_last_nonzero_sign[index] = sign
+                self._continuous_last_nonzero_time_sec[index] = now_sec
+
         return self.continuous_neutral_deg[index] + cmd * self.continuous_span_deg[index]
 
     def _apply_rate_limit(self, index: int, target_deg: float) -> float:

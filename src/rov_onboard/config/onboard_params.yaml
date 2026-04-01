@@ -16,6 +16,7 @@ arm_servo_node:
     offsets_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     continuous_axes: [false, false, false, false, false, true, true]
     continuous_deadband: 0.08
+    continuous_reverse_min_interval_sec: [0.0, 0.0, 0.0, 0.0, 0.0, 0.20, 0.20]
     continuous_neutral_deg: [90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
     continuous_span_deg: [90.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0]
     rate_limit_deg_per_sec: [120.0, 120.0, 120.0, 150.0, 150.0, 240.0, 240.0]
