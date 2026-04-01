@@ -68,15 +68,15 @@ class ArmServoNode(Node):
                 f"axis_count ({self.axis_count})."
             )
         self.get_logger().debug(f"Arm servo axis order: {self.axis_names}")
-        self.servo_min_deg = self._normalize_float_list(
-            list(self.get_parameter('servo_min_deg').value),
-            [0.0] * self.axis_count,
-            'servo_min_deg',
-        )
         self.offsets_deg = self._normalize_float_list(
             list(self.get_parameter('offsets_deg').value),
             [0.0] * self.axis_count,
             'offsets_deg',
+        )
+        self.servo_min_deg = self._normalize_float_list(
+            list(self.get_parameter('servo_min_deg').value),
+            [0.0] * self.axis_count,
+            'servo_min_deg',
         )
         self.servo_max_deg = self._normalize_float_list(
             list(self.get_parameter('servo_max_deg').value),
@@ -330,5 +330,4 @@ def main(args=None) -> None:
 
 if __name__ == '__main__':
     main()
-
 

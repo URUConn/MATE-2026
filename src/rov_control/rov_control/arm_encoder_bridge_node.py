@@ -239,7 +239,7 @@ class ArmEncoderBridgeNode(Node):
     def _publish_command(self, raw_values: List[float]) -> None:
         """Apply scaling and publish arm command.
 
-        Offsets and hardware limit clamping are centralized in arm_servo_node.
+        Offsets and servo limits are centralized on the onboard arm_servo_node.
         """
         if len(raw_values) < self.axis_count:
             return
