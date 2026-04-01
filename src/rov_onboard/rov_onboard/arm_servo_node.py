@@ -33,6 +33,10 @@ class ArmServoNode(Node):
         self.declare_parameter('command_topic', '/rov/arm/servo_command')
         self.declare_parameter('axis_names', DEFAULT_AXIS_NAMES)
         self.declare_parameter('offsets_deg', [0.0] * 7)
+        self.declare_parameter('continuous_axes', [False] * 7)
+        self.declare_parameter('continuous_deadband', 0.08)
+        self.declare_parameter('continuous_neutral_deg', [90.0] * 7)
+        self.declare_parameter('continuous_span_deg', [90.0] * 7)
         self.declare_parameter('servo_min_deg', [0.0] * 7)
         self.declare_parameter('servo_max_deg', [180.0] * 7)
         self.declare_parameter('neutral_deg', [90.0] * 7)
@@ -72,6 +76,22 @@ class ArmServoNode(Node):
             list(self.get_parameter('offsets_deg').value),
             [0.0] * self.axis_count,
             'offsets_deg',
+        )
+        self.continuous_axes = self._normalize_bool_list(
+            list(self.get_parameter('continuous_axes').value),
+            [False] * self.axis_count,
+            'continuous_axes',
+        )
+        self.continuous_deadband = float(self.get_parameter('continuous_deadband').value)
+        self.continuous_neutral_deg = self._normalize_float_list(
+            list(self.get_parameter('continuous_neutral_deg').value),
+            [90.0] * self.axis_count,
+            'continuous_neutral_deg',
+        )
+        self.continuous_span_deg = self._normalize_float_list(
+            list(self.get_parameter('continuous_span_deg').value),
+            [90.0] * self.axis_count,
+            'continuous_span_deg',
         )
         self.servo_min_deg = self._normalize_float_list(
             list(self.get_parameter('servo_min_deg').value),
@@ -180,6 +200,23 @@ class ArmServoNode(Node):
             values = list(fallback)
         return [int(v) for v in values[: self.axis_count]]
 
+    def _normalize_bool_list(self, values: List[bool], fallback: List[bool], name: str) -> List[bool]:
+        """Normalize a bool parameter list to axis_count."""
+        if len(values) != self.axis_count:
+            self.get_logger().warn(
+                f'Parameter {name} length {len(values)} does not match axis_count '
+                f'{self.axis_count}. Using defaults.'
+            )
+            values = list(fallback)
+        return [bool(v) for v in values[: self.axis_count]]
+
+    def _continuous_command_to_angle(self, index: int, normalized_cmd: float) -> float:
+        """Map normalized continuous-servo command [-1, 1] to servo driver angle."""
+        cmd = max(-1.0, min(1.0, float(normalized_cmd)))
+        if abs(cmd) < self.continuous_deadband:
+            cmd = 0.0
+        return self.continuous_neutral_deg[index] + cmd * self.continuous_span_deg[index]
+
     def _create_servo_driver(self):
         """
         Create the servo driver for direct onboard GPIO access.
@@ -285,7 +322,10 @@ class ArmServoNode(Node):
 
         max_index = min(self.axis_count, len(msg.target_deg))
         for index in range(max_index):
-            target_deg = float(msg.target_deg[index]) + self.offsets_deg[index]
+            if self.continuous_axes[index]:
+                target_deg = self._continuous_command_to_angle(index, msg.target_deg[index])
+            else:
+                target_deg = float(msg.target_deg[index]) + self.offsets_deg[index]
             self._write_servo(index, target_deg)
 
     def _check_timeout(self) -> None:
