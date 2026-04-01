@@ -5,9 +5,6 @@ arm_encoder_bridge_node:
     output_topic: /rov/arm/servo_command
     axis_names: [base, shoulder, elbow, wrist_pitch, wrist_roll, wrist_yaw, gripper]
     scales: [-1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-    offsets_deg: [180.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    servo_min_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    servo_max_deg: [180.0, 180.0, 180.0, 180.0, 180.0, 180.0, 180.0]
     use_serial_input: true
     serial_port: /dev/serial/by-id/CHANGE_ME_TO_YOUR_ARDUINO
     serial_baud_rate: 921600

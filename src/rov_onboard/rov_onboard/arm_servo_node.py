@@ -32,6 +32,7 @@ class ArmServoNode(Node):
         self.declare_parameter('axis_count', 7)
         self.declare_parameter('command_topic', '/rov/arm/servo_command')
         self.declare_parameter('axis_names', DEFAULT_AXIS_NAMES)
+        self.declare_parameter('offsets_deg', [0.0] * 7)
         self.declare_parameter('servo_min_deg', [0.0] * 7)
         self.declare_parameter('servo_max_deg', [180.0] * 7)
         self.declare_parameter('neutral_deg', [90.0] * 7)
@@ -71,6 +72,11 @@ class ArmServoNode(Node):
             list(self.get_parameter('servo_min_deg').value),
             [0.0] * self.axis_count,
             'servo_min_deg',
+        )
+        self.offsets_deg = self._normalize_float_list(
+            list(self.get_parameter('offsets_deg').value),
+            [0.0] * self.axis_count,
+            'offsets_deg',
         )
         self.servo_max_deg = self._normalize_float_list(
             list(self.get_parameter('servo_max_deg').value),
@@ -279,7 +285,8 @@ class ArmServoNode(Node):
 
         max_index = min(self.axis_count, len(msg.target_deg))
         for index in range(max_index):
-            self._write_servo(index, msg.target_deg[index])
+            target_deg = float(msg.target_deg[index]) + self.offsets_deg[index]
+            self._write_servo(index, target_deg)
 
     def _check_timeout(self) -> None:
         """
