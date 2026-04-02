@@ -183,6 +183,16 @@ low while still using the robot's existing camera feed.
 Before you rely on monocular SLAM, run the calibration workflow so the control
 laptop has a proper intrinsics/distortion model for the wide-angle USB camera.
 
+Generate a matching checkerboard locally (9x6 inner corners, 25 mm squares):
+
+```bash
+cd ~/MATE-2026
+source install/setup.bash
+ros2 run rov_slam generate_checkerboard
+```
+
+Print the generated SVG at 100% scale (disable fit-to-page).
+
 ```bash
 cd ~/MATE2026
 source install/setup.bash

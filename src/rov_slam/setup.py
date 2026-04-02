@@ -29,6 +29,7 @@ setup(
     entry_points={
         'console_scripts': [
             'camera_calibration_node = rov_slam.camera_calibration_node:main',
+            'generate_checkerboard = rov_slam.checkerboard_generator:main',
             'monocular_slam_node = rov_slam.monocular_slam_node:main',
         ],
     },

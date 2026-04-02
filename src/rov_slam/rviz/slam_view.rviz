@@ -34,11 +34,15 @@ Visualization Manager:
       Enabled: true
       Name: SLAM Map Points
       Topic: /rov/slam/map_points
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: Camera Image (2D)
+      Topic: /rov/slam/image
     - Class: rviz_default_plugins/Camera
       Enabled: true
       Name: Camera Overlay
       Image Topic: /rov/slam/image
-      Camera Info Topic: /rov/slam/camera_info
+      Info Topic: /rov/slam/camera_info
       Overlay Alpha: 0.5
       Visibility: true
   Tools:
