@@ -28,6 +28,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'camera_calibration_node = rov_slam.camera_calibration_node:main',
             'monocular_slam_node = rov_slam.monocular_slam_node:main',
         ],
     },

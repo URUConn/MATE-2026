@@ -1,0 +1,28 @@
+camera_calibration_node:
+  ros__parameters:
+    # Default to the same compressed camera stream used by the SLAM node so the
+    # calibration workflow does not compete with the QGC bridge path.
+    input_mode: compressed
+    image_topic: /rov/camera/image_compressed
+    camera_info_topic: /rov/camera/camera_info
+    camera_frame: camera_link
+
+    # Standard chessboard defaults. Count the INNER corners.
+    pattern_columns: 9
+    pattern_rows: 6
+    square_size_m: 0.025
+
+    # Collect enough varied views before solving. Move the target around the
+    # camera between accepted samples.
+    sample_target: 25
+    capture_interval_sec: 1.0
+    minimum_corner_motion_px: 12.0
+    use_clahe: true
+    image_scale: 1.0
+
+    # Saved OpenCV calibration file. The SLAM node can then use the resulting
+    # CameraInfo topic or you can copy the intrinsics into slam_params.yaml.
+    output_file: ~/.ros/rov_camera_calibration.yaml
+    publish_camera_info: true
+    exit_after_calibration: false
+

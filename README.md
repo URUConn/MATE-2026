@@ -178,7 +178,24 @@ This runs on the **control laptop** and stays separate from the QGC bridge. By
 default it subscribes to `/rov/camera/image_compressed`, which keeps network load
 low while still using the robot's existing camera feed.
 
-### 6.1 Start the SLAM pipeline + RViz
+### 6.1 Calibrate the camera first
+
+Before you rely on monocular SLAM, run the calibration workflow so the control
+laptop has a proper intrinsics/distortion model for the wide-angle USB camera.
+
+```bash
+cd ~/MATE2026
+source install/setup.bash
+ros2 launch rov_slam camera_calibration_launch.py
+```
+
+Hold a printed chessboard in front of the camera and move it around until the
+node accepts enough varied samples and writes `~/.ros/rov_camera_calibration.yaml`.
+
+The calibration node also publishes `/rov/camera/camera_info`, so once it has
+solved the intrinsics, `monocular_slam_node` can consume the calibration live.
+
+### 6.2 Start the SLAM pipeline + RViz
 
 ```bash
 cd ~/MATE2026
@@ -191,7 +208,7 @@ The launch file starts the monocular SLAM node and RViz. The RViz layout shows:
 - `/rov/slam/path` for the motion trail
 - `/rov/slam/map_points` for the sparse landmark map
 
-### 6.2 Tune the camera model if needed
+### 6.3 Tune the camera model if needed
 
 Edit `src/rov_slam/config/slam_params.yaml` to match your camera:
 - keep `input_mode: compressed` for the lowest bandwidth path
@@ -297,6 +314,10 @@ ros2 launch rov_control control_launch.py
   - SLAM input topic and camera calibration defaults
   - ORB / PnP / keyframe tuning
   - RViz-friendly map and pose visualization settings
+- `src/rov_slam/config/camera_calibration_params.yaml`
+  - chessboard size and capture settings
+  - saved calibration file path
+  - live `CameraInfo` publishing options
 - `src/rov_onboard/config/onboard_params.yaml`
   - camera settings
   - PinPong + servo pin/range/timeout settings
