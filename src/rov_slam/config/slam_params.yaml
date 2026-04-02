@@ -8,7 +8,7 @@ monocular_slam_node:
     camera_frame: camera_link
     map_frame: map
     publish_tf: true
-    processing_scale: 0.35
+    processing_scale: 0.28
     use_clahe: true
     horizontal_fov_deg: 85.0
     calibration_file: ~/.ros/rov_camera_calibration.yaml
@@ -21,7 +21,7 @@ monocular_slam_node:
     cy: 0.0
     dist_coeffs: [0.0, 0.0, 0.0, 0.0, 0.0]
 
-    nfeatures: 2200
+    nfeatures: 1500
     scale_factor: 1.2
     nlevels: 8
     edge_threshold: 31

@@ -364,7 +364,7 @@ class MonocularSlamNode(Node):
 
         # Always publish the live image stream so RViz stays responsive even if
         # SLAM has not initialized or pose tracking temporarily drops out.
-        self._publish_overlay_inputs(stamp, gray, self._current_pose_cw)
+        self._publish_overlay_inputs(stamp, gray, self._current_pose_cw, state.keypoints)
 
         if not self._initialized:
             # Keep RViz image displays alive before SLAM bootstrap succeeds.
@@ -389,7 +389,7 @@ class MonocularSlamNode(Node):
         published_pose_wc = self._smooth_pose_for_publish(np.linalg.inv(pose_cw), confidence)
         self._publish_state(state, published_pose_wc)
 
-        if confidence >= self.min_pose_confidence and self._needs_keyframe(state):
+        if self._needs_keyframe(state):
             self._create_keyframe_and_expand_map(state)
 
         self._trim_map_points()
@@ -775,6 +775,7 @@ class MonocularSlamNode(Node):
         stamp: object,
         gray: np.ndarray,
         pose_cw: Optional[np.ndarray],
+        keypoints: Optional[List[cv2.KeyPoint]] = None,
     ) -> None:
         image_msg = self.bridge.cv2_to_imgmsg(gray, encoding='mono8')
         image_msg.header.stamp = stamp
@@ -782,6 +783,8 @@ class MonocularSlamNode(Node):
         self.overlay_image_pub.publish(image_msg)
 
         overlay_bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+        if keypoints:
+            self._draw_keypoints(overlay_bgr, keypoints)
         if pose_cw is not None and self._camera_matrix is not None and self._map_points:
             self._draw_overlay_points(overlay_bgr, pose_cw)
 
@@ -807,6 +810,21 @@ class MonocularSlamNode(Node):
         camera_info.p = projection.reshape(-1).tolist()
         self.overlay_camera_info_pub.publish(camera_info)
         self.overlay_camera_info_compat_pub.publish(camera_info)
+
+    def _draw_keypoints(self, image_bgr: np.ndarray, keypoints: List[cv2.KeyPoint]) -> None:
+        if not keypoints:
+            return
+
+        step = max(1, len(keypoints) // 250)
+        height, width = image_bgr.shape[:2]
+        for index, keypoint in enumerate(keypoints[::step]):
+            u, v = keypoint.pt
+            if not np.isfinite(u) or not np.isfinite(v):
+                continue
+            if u < 0 or v < 0 or u >= width or v >= height:
+                continue
+            color = (0, 255, 0) if index % 2 == 0 else (255, 255, 0)
+            cv2.circle(image_bgr, (int(u), int(v)), 2, color, -1)
 
     def _draw_overlay_points(self, image_bgr: np.ndarray, pose_cw: np.ndarray) -> None:
         usable_points = [
