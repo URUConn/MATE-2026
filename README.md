@@ -4,7 +4,7 @@
 MATEROV is an underwater robotics competition. This repository contains the ROS workspace for our 2026 entry, which includes:
 - **ROS 2 handles:**
   - arm encoder values from the control laptop -> onboard servo commands
-  - camera transport used by a QGC video bridge
+  - camera transport used by a QGC video bridge and control-side SLAM
 - **QGroundControl + autopilot stack** handles vehicle driving/thrusters.
 
 ---
@@ -18,6 +18,11 @@ Control Laptop (Ubuntu + QGroundControl + ROS 2)          Onboard Computer (Ubun
       ^
       | UDP video :5600 from ROS bridge
 [rov_control/qgc_video_bridge_node] <-- ROS compressed image -- [rov_onboard/camera_node]
+
+      | ROS camera stream (default: compressed)
+[rov_slam/monocular_slam_node] <-- ROS image stream ----------- [rov_onboard/camera_node]
+      |
+      '--/rov/slam/pose, /rov/slam/path, /rov/slam/map_points --> [RViz on control laptop]
 
 [arm controller encoder USB] --/rov/arm/encoder_values--> [rov_control/arm_encoder_bridge_node]
                                                            |
@@ -34,6 +39,8 @@ Split into 2 main packages for the two hardware stacks, plus a shared messages p
 - `rov_control` (runs on control laptop)
   - `arm_encoder_bridge_node`
   - `qgc_video_bridge_node`
+- `rov_slam` (runs on control laptop)
+  - `monocular_slam_node`
 - `rov_onboard` (runs on onboard computer)
   - `camera_node`
   - `arm_servo_node`
@@ -48,6 +55,10 @@ Split into 2 main packages for the two hardware stacks, plus a shared messages p
 | `/rov/arm/servo_command` | `rov_msgs/ArmServoCommand` | Laptop -> Onboard | 8 servo target angles in degrees             |
 | `/rov/camera/image_raw` | `sensor_msgs/Image` | Onboard -> Laptop | raw camera stream                            |
 | `/rov/camera/image_compressed` | `sensor_msgs/CompressedImage` | Onboard -> Laptop | compressed camera stream                     |
+| `/rov/slam/pose` | `geometry_msgs/PoseStamped` | Laptop local output | current SLAM pose in `map` frame             |
+| `/rov/slam/odom` | `nav_msgs/Odometry` | Laptop local output | odometry-style pose for RViz/consumers       |
+| `/rov/slam/path` | `nav_msgs/Path` | Laptop local output | accumulated camera trajectory                |
+| `/rov/slam/map_points` | `visualization_msgs/MarkerArray` | Laptop local output | sparse map points + current pose marker      |
 
 `ArmServoCommand` axis order defaults to:
 `[base, shoulder, elbow, wrist_pitch, wrist_roll, wrist_yaw, tool_rotate, gripper]`
@@ -67,6 +78,7 @@ sudo apt update
 sudo apt install -y \
   python3-opencv \
   ros-humble-cv-bridge \
+  ros-humble-rviz2 \
   python3-pip \
   ffmpeg \
   mavlink-router
@@ -160,9 +172,43 @@ ros2 topic hz /rov/camera/image_compressed
 
 ---
 
-## 6) Arm Control Path Setup
+## 6) Control-Side Monocular SLAM
 
-### 6.1 Encoder publisher contract (laptop)
+This runs on the **control laptop** and stays separate from the QGC bridge. By
+default it subscribes to `/rov/camera/image_compressed`, which keeps network load
+low while still using the robot's existing camera feed.
+
+### 6.1 Start the SLAM pipeline + RViz
+
+```bash
+cd ~/MATE2026
+source install/setup.bash
+ros2 launch rov_slam slam_only_launch.py
+```
+
+The launch file starts the monocular SLAM node and RViz. The RViz layout shows:
+- `TF` for the current robot pose
+- `/rov/slam/path` for the motion trail
+- `/rov/slam/map_points` for the sparse landmark map
+
+### 6.2 Tune the camera model if needed
+
+Edit `src/rov_slam/config/slam_params.yaml` to match your camera:
+- keep `input_mode: compressed` for the lowest bandwidth path
+- switch to `input_mode: raw` and `image_topic: /rov/camera/image_raw` if you want raw frames instead
+- set `camera_info_topic` when you later add a calibrated camera publisher
+- adjust `horizontal_fov_deg`, `fx`, `fy`, `cx`, `cy`, or `dist_coeffs` if your camera model changes
+
+This monocular pipeline is fully usable on its own, but because it is monocular it
+still has relative scale ambiguity. When you move to the Intel RealSense D400,
+you can keep the same control-side launch path and feed it calibrated camera info
+or a depth-enabled workflow for metric scale assistance.
+
+---
+
+## 7) Arm Control Path Setup
+
+### 7.1 Encoder publisher contract (laptop)
 
 There is a script/node that reads 8 encoder values from USB and publishes to ROS topic:
 - topic: `/rov/arm/encoder_values`
@@ -171,7 +217,7 @@ There is a script/node that reads 8 encoder values from USB and publishes to ROS
 
 These values can be degrees or raw units. Mapping to servo angles is done in `control_params.yaml` (`scales` and `offsets_deg`).
 
-### 6.2 Start arm bridge on laptop
+### 7.2 Start arm bridge on laptop
 
 ```bash
 cd ~/MATE2026
@@ -179,7 +225,7 @@ source install/setup.bash
 ros2 launch rov_control arm_only_launch.py
 ```
 
-### 6.3 Start onboard servo node
+### 7.3 Start onboard servo node
 
 ```bash
 cd ~/MATE2026
@@ -187,7 +233,7 @@ source install/setup.bash
 ros2 launch rov_onboard arm_only_launch.py
 ```
 
-### 6.4 Enable real PinPong output
+### 7.4 Enable real PinPong output
 
 Edit `src/rov_onboard/config/onboard_params.yaml`:
 
@@ -207,7 +253,7 @@ source install/setup.bash
 
 ---
 
-## 7) Full Launch (Simplified)
+## 8) Full Launch (Simplified)
 
 Onboard:
 
@@ -247,6 +293,10 @@ ros2 launch rov_control control_launch.py
   - encoder input topic
   - axis scaling/offset/clamps
   - QGC bridge UDP/ffmpeg settings
+- `src/rov_slam/config/slam_params.yaml`
+  - SLAM input topic and camera calibration defaults
+  - ORB / PnP / keyframe tuning
+  - RViz-friendly map and pose visualization settings
 - `src/rov_onboard/config/onboard_params.yaml`
   - camera settings
   - PinPong + servo pin/range/timeout settings
@@ -256,5 +306,5 @@ ros2 launch rov_control control_launch.py
 ## Notes
 
 - Keep ROS and QGC responsibilities separate:
-  - ROS: arm + camera transport
+  - ROS: arm + camera transport + control-side SLAM
   - QGC/autopilot: vehicle drive and piloting
