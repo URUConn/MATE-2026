@@ -7,7 +7,7 @@ TF transforms, and RViz-friendly map markers on the control laptop.
 
 from dataclasses import dataclass
 import math
-from pathlib import Path
+from pathlib import Path as FilePath
 from typing import List, Optional, Sequence, Tuple
 
 import cv2
@@ -837,7 +837,7 @@ class MonocularSlamNode(Node):
             cv2.circle(image_bgr, (int(u), int(v)), 2, color, -1)
 
     def _try_load_calibration_file(self) -> None:
-        calibration_path = Path(self.calibration_file).expanduser()
+        calibration_path = FilePath(self.calibration_file).expanduser()
         if not calibration_path.exists():
             self.get_logger().warn(
                 f'Calibration file not found at {calibration_path}; using CameraInfo topic or approximate intrinsics.'
