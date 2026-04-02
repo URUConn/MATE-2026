@@ -392,7 +392,7 @@ class MonocularSlamNode(Node):
         if self._needs_keyframe(state):
             self._create_keyframe_and_expand_map(state)
 
-        self._trim_map_points()
+        self._trim_map_points(np.linalg.inv(pose_cw))
 
     def _bootstrap_or_store_reference(self, state: FrameState) -> None:
         if self._pending_reference is None:
@@ -468,7 +468,7 @@ class MonocularSlamNode(Node):
             self._triangulate_landmarks(reference, current, match_subset, ref_inliers, cur_inliers)
         )
         self._last_keyframe = current
-        self._trim_map_points()
+        self._trim_map_points(np.linalg.inv(self._current_pose_cw))
         return True
 
     def _estimate_pose(self, state: FrameState) -> Optional[PoseEstimate]:
@@ -1140,11 +1140,15 @@ class MonocularSlamNode(Node):
         cosine = np.clip(cosine, -1.0, 1.0)
         return np.degrees(np.arccos(cosine))
 
-    def _trim_map_points(self) -> None:
-        if self.max_map_radius_m > 0.0 and self._map_points:
+    def _trim_map_points(self, pose_wc: Optional[np.ndarray] = None) -> None:
+        if pose_wc is None and self._current_pose_cw is not None:
+            pose_wc = np.linalg.inv(self._current_pose_cw)
+
+        if self.max_map_radius_m > 0.0 and self._map_points and pose_wc is not None:
+            camera_position = pose_wc[:3, 3]
             self._map_points = [
                 point for point in self._map_points
-                if np.linalg.norm(point.point_w) <= self.max_map_radius_m
+                if np.linalg.norm(point.point_w - camera_position) <= self.max_map_radius_m
             ]
 
         if len(self._map_points) <= self.max_map_points:

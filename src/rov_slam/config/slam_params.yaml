@@ -12,7 +12,7 @@ monocular_slam_node:
     use_clahe: true
     horizontal_fov_deg: 85.0
     calibration_file: ~/.ros/rov_camera_calibration.yaml
-    use_fallback_pose_estimation: false
+    use_fallback_pose_estimation: true
 
     # Approximate intrinsics are used until a CameraInfo topic is available.
     fx: 0.0
@@ -36,7 +36,7 @@ monocular_slam_node:
     keyframe_translation_threshold_m: 0.06
     keyframe_rotation_threshold_deg: 6.0
     triangulation_reprojection_threshold_px: 3.0
-    triangulation_min_matches: 50
+    triangulation_min_matches: 35
     min_pnp_inlier_ratio: 0.25
     max_pnp_median_reprojection_px: 2.5
     min_pose_confidence: 0.15
