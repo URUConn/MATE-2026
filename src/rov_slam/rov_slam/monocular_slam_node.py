@@ -17,6 +17,7 @@ from cv_bridge import CvBridge
 from geometry_msgs.msg import Point, Pose, PoseStamped, TransformStamped
 from nav_msgs.msg import Odometry, Path
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 from tf2_ros import TransformBroadcaster
 from visualization_msgs.msg import Marker, MarkerArray
@@ -198,6 +199,10 @@ class MonocularSlamNode(Node):
             self.get_parameter('overlay_camera_info_compat_topic').value
         )
 
+        self.image_qos = qos_profile_sensor_data
+        self.camera_info_qos = QoSProfile(depth=1)
+        self.camera_info_qos.reliability = QoSReliabilityPolicy.RELIABLE
+
         self.bridge = CvBridge()
         self.tf_broadcaster = TransformBroadcaster(self)
 
@@ -252,7 +257,7 @@ class MonocularSlamNode(Node):
                 CameraInfo,
                 self.camera_info_topic,
                 self._camera_info_callback,
-                10,
+                self.camera_info_qos,
             )
         else:
             self.camera_info_sub = None
@@ -262,14 +267,14 @@ class MonocularSlamNode(Node):
                 CompressedImage,
                 self.image_topic,
                 self._compressed_image_callback,
-                10,
+                self.image_qos,
             )
         elif self.input_mode == 'raw':
             self.image_sub = self.create_subscription(
                 Image,
                 self.image_topic,
                 self._raw_image_callback,
-                10,
+                self.image_qos,
             )
         else:
             raise ValueError("input_mode must be either 'compressed' or 'raw'")
