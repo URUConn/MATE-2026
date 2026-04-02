@@ -36,9 +36,6 @@ class ArmEncoderBridgeNode(Node):
         self.declare_parameter('output_topic', '/rov/arm/servo_command')
         self.declare_parameter('axis_names', DEFAULT_AXIS_NAMES)
         self.declare_parameter('scales', [1.0] * 7)
-        self.declare_parameter('offsets_deg', [0.0] * 7)
-        self.declare_parameter('servo_min_deg', [0.0] * 7)
-        self.declare_parameter('servo_max_deg', [180.0] * 7)
         self.declare_parameter('use_serial_input', True)
         self.declare_parameter('serial_port', '/dev/ttyACM0')
         self.declare_parameter('serial_baud_rate', 921600)
@@ -82,21 +79,6 @@ class ArmEncoderBridgeNode(Node):
             list(self.get_parameter('scales').value),
             [1.0] * self.axis_count,
             'scales',
-        )
-        self.offsets_deg = self._normalize_float_list(
-            list(self.get_parameter('offsets_deg').value),
-            [0.0] * self.axis_count,
-            'offsets_deg',
-        )
-        self.servo_min_deg = self._normalize_float_list(
-            list(self.get_parameter('servo_min_deg').value),
-            [0.0] * self.axis_count,
-            'servo_min_deg',
-        )
-        self.servo_max_deg = self._normalize_float_list(
-            list(self.get_parameter('servo_max_deg').value),
-            [180.0] * self.axis_count,
-            'servo_max_deg',
         )
 
         self.publisher = self.create_publisher(ArmServoCommand, self.output_topic, 10)
@@ -255,7 +237,10 @@ class ArmEncoderBridgeNode(Node):
         self._publish_command([float(msg.data[index]) for index in range(self.axis_count)])
 
     def _publish_command(self, raw_values: List[float]) -> None:
-        """Apply scaling/clamping and publish arm command."""
+        """Apply scaling and publish arm command.
+
+        Offsets and servo limits are centralized on the onboard arm_servo_node.
+        """
         if len(raw_values) < self.axis_count:
             return
 
@@ -264,8 +249,7 @@ class ArmEncoderBridgeNode(Node):
 
         for index in range(self.axis_count):
             raw_value = float(raw_values[index])
-            target = raw_value * self.scales[index] + self.offsets_deg[index]
-            target = max(self.servo_min_deg[index], min(self.servo_max_deg[index], target))
+            target = raw_value * self.scales[index]
             command.target_deg[index] = float(target)
 
         self.publisher.publish(command)

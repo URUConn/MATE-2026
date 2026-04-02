@@ -32,6 +32,19 @@ class ArmServoNode(Node):
         self.declare_parameter('axis_count', 7)
         self.declare_parameter('command_topic', '/rov/arm/servo_command')
         self.declare_parameter('axis_names', DEFAULT_AXIS_NAMES)
+        self.declare_parameter('offsets_deg', [0.0] * 7)
+        self.declare_parameter('continuous_axes', [False] * 7)
+        self.declare_parameter('continuous_deadband', 0.08)
+        self.declare_parameter('continuous_reverse_min_interval_sec', [0.0] * 7)
+        self.declare_parameter('continuous_neutral_deg', [90.0] * 7)
+        self.declare_parameter('continuous_span_deg', [90.0] * 7)
+        self.declare_parameter('rate_limit_deg_per_sec', [0.0] * 7)
+        self.declare_parameter('accel_limit_deg_per_sec2', [0.0] * 7)
+        self.declare_parameter('rate_limit_max_dt_sec', 0.04)
+        self.declare_parameter('startup_ramp_sec', 3.0)
+        self.declare_parameter('startup_rate_limit_deg_per_sec', 20.0)
+        self.declare_parameter('startup_accel_limit_deg_per_sec2', 80.0)
+        self.declare_parameter('reverse_min_interval_sec', [0.0] * 7)
         self.declare_parameter('servo_min_deg', [0.0] * 7)
         self.declare_parameter('servo_max_deg', [180.0] * 7)
         self.declare_parameter('neutral_deg', [90.0] * 7)
@@ -67,6 +80,55 @@ class ArmServoNode(Node):
                 f"axis_count ({self.axis_count})."
             )
         self.get_logger().debug(f"Arm servo axis order: {self.axis_names}")
+        self.offsets_deg = self._normalize_float_list(
+            list(self.get_parameter('offsets_deg').value),
+            [0.0] * self.axis_count,
+            'offsets_deg',
+        )
+        self.continuous_axes = self._normalize_bool_list(
+            list(self.get_parameter('continuous_axes').value),
+            [False] * self.axis_count,
+            'continuous_axes',
+        )
+        self.continuous_deadband = float(self.get_parameter('continuous_deadband').value)
+        self.continuous_reverse_min_interval_sec = self._normalize_float_list(
+            list(self.get_parameter('continuous_reverse_min_interval_sec').value),
+            [0.0] * self.axis_count,
+            'continuous_reverse_min_interval_sec',
+        )
+        self.continuous_neutral_deg = self._normalize_float_list(
+            list(self.get_parameter('continuous_neutral_deg').value),
+            [90.0] * self.axis_count,
+            'continuous_neutral_deg',
+        )
+        self.continuous_span_deg = self._normalize_float_list(
+            list(self.get_parameter('continuous_span_deg').value),
+            [90.0] * self.axis_count,
+            'continuous_span_deg',
+        )
+        self.rate_limit_deg_per_sec = self._normalize_float_list(
+            list(self.get_parameter('rate_limit_deg_per_sec').value),
+            [0.0] * self.axis_count,
+            'rate_limit_deg_per_sec',
+        )
+        self.accel_limit_deg_per_sec2 = self._normalize_float_list(
+            list(self.get_parameter('accel_limit_deg_per_sec2').value),
+            [0.0] * self.axis_count,
+            'accel_limit_deg_per_sec2',
+        )
+        self.rate_limit_max_dt_sec = float(self.get_parameter('rate_limit_max_dt_sec').value)
+        self.startup_ramp_sec = float(self.get_parameter('startup_ramp_sec').value)
+        self.startup_rate_limit_deg_per_sec = float(
+            self.get_parameter('startup_rate_limit_deg_per_sec').value
+        )
+        self.startup_accel_limit_deg_per_sec2 = float(
+            self.get_parameter('startup_accel_limit_deg_per_sec2').value
+        )
+        self.reverse_min_interval_sec = self._normalize_float_list(
+            list(self.get_parameter('reverse_min_interval_sec').value),
+            [0.0] * self.axis_count,
+            'reverse_min_interval_sec',
+        )
         self.servo_min_deg = self._normalize_float_list(
             list(self.get_parameter('servo_min_deg').value),
             [0.0] * self.axis_count,
@@ -91,6 +153,15 @@ class ArmServoNode(Node):
         self._servo_driver = self._create_servo_driver()
         self._last_command_time = self.get_clock().now()
         self._timed_out = False
+        self._last_output_deg: List[float] = [float(self.neutral_deg[index]) for index in range(self.axis_count)]
+        now_sec = self.get_clock().now().nanoseconds / 1e9
+        self._last_output_time_sec: List[float] = [now_sec] * self.axis_count
+        self._startup_end_time_sec = now_sec + max(0.0, self.startup_ramp_sec)
+        self._last_output_vel_deg_per_sec: List[float] = [0.0] * self.axis_count
+        self._last_motion_sign: List[int] = [0] * self.axis_count
+        self._last_motion_change_time_sec: List[float] = [now_sec] * self.axis_count
+        self._continuous_last_nonzero_sign: List[int] = [0] * self.axis_count
+        self._continuous_last_nonzero_time_sec: List[float] = [now_sec] * self.axis_count
 
         # Subscribe to ROS topic
         self.subscription = self.create_subscription(
@@ -174,6 +245,142 @@ class ArmServoNode(Node):
             values = list(fallback)
         return [int(v) for v in values[: self.axis_count]]
 
+    def _normalize_bool_list(self, values: List[bool], fallback: List[bool], name: str) -> List[bool]:
+        """Normalize a bool parameter list to axis_count."""
+        if len(values) != self.axis_count:
+            self.get_logger().warn(
+                f'Parameter {name} length {len(values)} does not match axis_count '
+                f'{self.axis_count}. Using defaults.'
+            )
+            values = list(fallback)
+        return [bool(v) for v in values[: self.axis_count]]
+
+    def _continuous_command_to_angle(self, index: int, normalized_cmd: float) -> float:
+        """Map normalized continuous-servo command [-1, 1] to servo driver angle."""
+        now_sec = self.get_clock().now().nanoseconds / 1e9
+        cmd = max(-1.0, min(1.0, float(normalized_cmd)))
+        if abs(cmd) < self.continuous_deadband:
+            cmd = 0.0
+
+        sign = 0
+        if cmd > 0.0:
+            sign = 1
+        elif cmd < 0.0:
+            sign = -1
+
+        if sign != 0:
+            prev_sign = int(self._continuous_last_nonzero_sign[index])
+            prev_time = float(self._continuous_last_nonzero_time_sec[index])
+            min_interval = max(0.0, float(self.continuous_reverse_min_interval_sec[index]))
+
+            if prev_sign != 0 and sign != prev_sign and (now_sec - prev_time) < min_interval:
+                cmd = 0.0
+            else:
+                self._continuous_last_nonzero_sign[index] = sign
+                self._continuous_last_nonzero_time_sec[index] = now_sec
+
+        return self.continuous_neutral_deg[index] + cmd * self.continuous_span_deg[index]
+
+    def _apply_rate_limit(self, index: int, target_deg: float) -> float:
+        """Limit per-axis output slew in deg/s. <=0 disables limiting for that axis."""
+        max_rate = float(self.rate_limit_deg_per_sec[index])
+        max_accel = float(self.accel_limit_deg_per_sec2[index])
+        now_sec = self.get_clock().now().nanoseconds / 1e9
+
+        # During startup, enforce gentle global caps so power-on neutral motion is slow.
+        if now_sec < self._startup_end_time_sec:
+            startup_rate = max(0.0, self.startup_rate_limit_deg_per_sec)
+            startup_accel = max(0.0, self.startup_accel_limit_deg_per_sec2)
+            if startup_rate > 0.0:
+                max_rate = startup_rate if max_rate <= 0.0 else min(max_rate, startup_rate)
+            if startup_accel > 0.0:
+                max_accel = startup_accel if max_accel <= 0.0 else min(max_accel, startup_accel)
+
+        prev_deg = float(self._last_output_deg[index])
+        prev_sec = float(self._last_output_time_sec[index])
+        prev_vel = float(self._last_output_vel_deg_per_sec[index])
+        dt_raw = max(0.0, now_sec - prev_sec)
+        dt_cap = max(1e-3, self.rate_limit_max_dt_sec)
+        dt = max(1e-4, min(dt_raw, dt_cap))
+
+        limited = float(target_deg)
+
+        # Optional direction-change lockout to avoid abrupt reversals.
+        desired_delta = limited - prev_deg
+        desired_sign = 0
+        if desired_delta > 0.0:
+            desired_sign = 1
+        elif desired_delta < 0.0:
+            desired_sign = -1
+
+        prev_sign = int(self._last_motion_sign[index])
+        min_reverse_interval = max(0.0, float(self.reverse_min_interval_sec[index]))
+        if (
+            desired_sign != 0
+            and prev_sign != 0
+            and desired_sign != prev_sign
+            and (now_sec - float(self._last_motion_change_time_sec[index])) < min_reverse_interval
+        ):
+            limited = prev_deg
+
+        error = limited - prev_deg
+        direction = 0.0
+        if error > 0.0:
+            direction = 1.0
+        elif error < 0.0:
+            direction = -1.0
+
+        if direction == 0.0:
+            desired_vel = 0.0
+        else:
+            # Velocity target follows a simple trapezoidal/triangular profile:
+            # cap by max speed, and when close to target cap by braking distance.
+            desired_speed = abs(error) / dt
+            if max_rate > 0.0:
+                desired_speed = min(desired_speed, max_rate)
+            if max_accel > 0.0:
+                max_speed_to_stop = (2.0 * max_accel * abs(error)) ** 0.5
+                desired_speed = min(desired_speed, max_speed_to_stop)
+            desired_vel = direction * desired_speed
+
+        vel = desired_vel
+        if max_accel > 0.0:
+            max_vel_delta = max_accel * dt
+            vel_delta = desired_vel - prev_vel
+            if vel_delta > max_vel_delta:
+                vel = prev_vel + max_vel_delta
+            elif vel_delta < -max_vel_delta:
+                vel = prev_vel - max_vel_delta
+
+        if max_rate > 0.0:
+            vel = max(-max_rate, min(max_rate, vel))
+
+        limited = prev_deg + vel * dt
+        if error > 0.0 and limited > float(target_deg):
+            limited = float(target_deg)
+            vel = 0.0
+        elif error < 0.0 and limited < float(target_deg):
+            limited = float(target_deg)
+            vel = 0.0
+
+        actual_delta = limited - prev_deg
+        if actual_delta > 0.0:
+            actual_sign = 1
+        elif actual_delta < 0.0:
+            actual_sign = -1
+        else:
+            actual_sign = 0
+
+        if actual_sign != 0:
+            if actual_sign != prev_sign:
+                self._last_motion_change_time_sec[index] = now_sec
+            self._last_motion_sign[index] = actual_sign
+
+        self._last_output_deg[index] = float(limited)
+        self._last_output_time_sec[index] = now_sec
+        self._last_output_vel_deg_per_sec[index] = float(vel)
+        return limited
+
     def _create_servo_driver(self):
         """
         Create the servo driver for direct onboard GPIO access.
@@ -244,6 +451,8 @@ class ArmServoNode(Node):
         :return: None
         """
         angle_deg = self._clamp_angle(index, float(angle_deg))
+        angle_deg = self._apply_rate_limit(index, angle_deg)
+        angle_deg = self._clamp_angle(index, float(angle_deg))
         # Some PinPong backends expect integer degrees and fail on float math/bit ops.
         angle_cmd = int(round(angle_deg))
 
@@ -279,7 +488,11 @@ class ArmServoNode(Node):
 
         max_index = min(self.axis_count, len(msg.target_deg))
         for index in range(max_index):
-            self._write_servo(index, msg.target_deg[index])
+            if self.continuous_axes[index]:
+                target_deg = self._continuous_command_to_angle(index, msg.target_deg[index])
+            else:
+                target_deg = float(msg.target_deg[index]) + self.offsets_deg[index]
+            self._write_servo(index, target_deg)
 
     def _check_timeout(self) -> None:
         """
@@ -323,5 +536,4 @@ def main(args=None) -> None:
 
 if __name__ == '__main__':
     main()
-
 
