@@ -38,6 +38,9 @@ monocular_slam_node:
     triangulation_reprojection_threshold_px: 3.0
     triangulation_min_matches: 80
     min_pnp_inlier_ratio: 0.45
+    max_pnp_median_reprojection_px: 2.5
+    min_pose_confidence: 0.25
+    pose_smoothing_alpha: 0.25
     triangulation_min_depth_m: 0.05
     triangulation_max_depth_m: 12.0
     min_triangulation_parallax_deg: 1.0

@@ -44,6 +44,14 @@ class MapPoint:
     last_seen_frame: int = 0
 
 
+@dataclass
+class PoseEstimate:
+    """Pose estimate plus a simple confidence score."""
+
+    pose_cw: np.ndarray
+    confidence: float
+
+
 class MonocularSlamNode(Node):
     """Control-side monocular SLAM node for the ROV camera stream."""
 
@@ -89,6 +97,9 @@ class MonocularSlamNode(Node):
         self.declare_parameter('triangulation_reprojection_threshold_px', 3.0)
         self.declare_parameter('triangulation_min_matches', 80)
         self.declare_parameter('min_pnp_inlier_ratio', 0.28)
+        self.declare_parameter('max_pnp_median_reprojection_px', 2.5)
+        self.declare_parameter('min_pose_confidence', 0.25)
+        self.declare_parameter('pose_smoothing_alpha', 0.25)
         self.declare_parameter('triangulation_min_depth_m', 0.05)
         self.declare_parameter('triangulation_max_depth_m', 12.0)
         self.declare_parameter('min_triangulation_parallax_deg', 0.6)
@@ -153,6 +164,11 @@ class MonocularSlamNode(Node):
         )
         self.triangulation_min_matches = int(self.get_parameter('triangulation_min_matches').value)
         self.min_pnp_inlier_ratio = float(self.get_parameter('min_pnp_inlier_ratio').value)
+        self.max_pnp_median_reprojection_px = float(
+            self.get_parameter('max_pnp_median_reprojection_px').value
+        )
+        self.min_pose_confidence = float(self.get_parameter('min_pose_confidence').value)
+        self.pose_smoothing_alpha = float(self.get_parameter('pose_smoothing_alpha').value)
         self.triangulation_min_depth_m = float(self.get_parameter('triangulation_min_depth_m').value)
         self.triangulation_max_depth_m = float(self.get_parameter('triangulation_max_depth_m').value)
         self.min_triangulation_parallax_deg = float(
@@ -200,6 +216,7 @@ class MonocularSlamNode(Node):
         self._last_keyframe: Optional[FrameState] = None
         self._map_points: List[MapPoint] = []
         self._current_pose_cw = np.eye(4, dtype=np.float64)
+        self._smoothed_pose_wc: Optional[np.ndarray] = None
 
         self.pose_pub = self.create_publisher(PoseStamped, '/rov/slam/pose', 10)
         self.odom_pub = self.create_publisher(Odometry, '/rov/slam/odom', 10)
@@ -338,7 +355,9 @@ class MonocularSlamNode(Node):
             self._bootstrap_or_store_reference(state)
             return
 
-        pose_cw, tracked_matches, inlier_mask = self._estimate_pose(state)
+        estimate = self._estimate_pose(state)
+        pose_cw = estimate.pose_cw if estimate is not None else None
+        confidence = estimate.confidence if estimate is not None else 0.0
         if pose_cw is None and self.use_fallback_pose_estimation:
             pose_cw = self._fallback_pose_from_previous_frame(state)
 
@@ -350,9 +369,10 @@ class MonocularSlamNode(Node):
         state.pose_cw = pose_cw
         self._current_pose_cw = pose_cw
         self._last_frame = state
-        self._publish_state(state)
+        published_pose_wc = self._smooth_pose_for_publish(np.linalg.inv(pose_cw), confidence)
+        self._publish_state(state, published_pose_wc)
 
-        if self._needs_keyframe(state):
+        if confidence >= self.min_pose_confidence and self._needs_keyframe(state):
             self._create_keyframe_and_expand_map(state)
 
         self._trim_map_points()
@@ -434,14 +454,14 @@ class MonocularSlamNode(Node):
         self._trim_map_points()
         return True
 
-    def _estimate_pose(self, state: FrameState) -> Tuple[Optional[np.ndarray], List[cv2.DMatch], Optional[np.ndarray]]:
+    def _estimate_pose(self, state: FrameState) -> Optional[PoseEstimate]:
         if state.descriptors is None or not self._map_points:
-            return None, [], None
+            return None
 
         map_descriptors = np.asarray([point.descriptor for point in self._map_points], dtype=np.uint8)
         matches = self._ratio_matches(state.descriptors, map_descriptors)
         if len(matches) < self.min_pnp_correspondences:
-            return None, matches, None
+            return None
 
         object_points = np.float32([self._map_points[m.trainIdx].point_w for m in matches])
         image_points = np.float32([state.keypoints[m.queryIdx].pt for m in matches])
@@ -457,7 +477,7 @@ class MonocularSlamNode(Node):
             flags=cv2.SOLVEPNP_EPNP,
         )
         if not success or inliers is None or len(inliers) < self.min_pnp_inliers:
-            return None, matches, inliers
+            return None
 
         inlier_indices = inliers.ravel().tolist()
         inlier_object_points = object_points[inlier_indices]
@@ -476,22 +496,44 @@ class MonocularSlamNode(Node):
             except Exception:
                 pass
 
+        projected, _ = cv2.projectPoints(
+            inlier_object_points,
+            rvec,
+            tvec,
+            self._camera_matrix,
+            self.dist_coeffs,
+        )
+        projected = projected.reshape(-1, 2)
+        reprojection_error = np.linalg.norm(projected - inlier_image_points, axis=1)
+        median_reprojection_error = float(np.median(reprojection_error))
+        if median_reprojection_error > self.max_pnp_median_reprojection_px:
+            return None
+
         rotation, _ = cv2.Rodrigues(rvec)
         pose_cw = self._compose_pose(rotation, tvec)
         if self._last_frame is not None and self._last_frame.pose_cw is not None:
             if not self._is_pose_step_reasonable(pose_cw, self._last_frame.pose_cw):
-                return None, matches, inliers
+                return None
 
         inlier_ratio = float(len(inlier_indices)) / float(max(1, len(matches)))
         if inlier_ratio < self.min_pnp_inlier_ratio:
-            return None, matches, inliers
+            return None
+
+        confidence = min(1.0, inlier_ratio / max(self.min_pnp_inlier_ratio, 1e-6))
+        confidence *= max(
+            0.0,
+            1.0 - (median_reprojection_error / max(self.max_pnp_median_reprojection_px, 1e-6)),
+        )
+        confidence = float(max(0.0, min(1.0, confidence)))
+        if confidence < self.min_pose_confidence:
+            return None
 
         for index in inlier_indices:
             map_point = self._map_points[matches[index].trainIdx]
             map_point.observations += 1
             map_point.last_seen_frame = state.frame_index
 
-        return pose_cw, matches, inliers
+        return PoseEstimate(pose_cw=pose_cw, confidence=confidence)
 
     def _fallback_pose_from_previous_frame(self, state: FrameState) -> Optional[np.ndarray]:
         if self._last_frame is None:
@@ -658,11 +700,12 @@ class MonocularSlamNode(Node):
         good_matches.sort(key=lambda match: match.distance)
         return good_matches
 
-    def _publish_state(self, state: FrameState) -> None:
+    def _publish_state(self, state: FrameState, pose_wc: Optional[np.ndarray] = None) -> None:
         if state.pose_cw is None:
             return
 
-        pose_wc = np.linalg.inv(state.pose_cw)
+        if pose_wc is None:
+            pose_wc = np.linalg.inv(state.pose_cw)
         pose_msg = PoseStamped()
         pose_msg.header.stamp = state.stamp
         pose_msg.header.frame_id = self.map_frame
@@ -686,6 +729,29 @@ class MonocularSlamNode(Node):
 
         self._publish_tf(state.stamp, pose_wc)
         self._publish_markers(state, pose_wc)
+
+    def _smooth_pose_for_publish(self, pose_wc: np.ndarray, confidence: float) -> np.ndarray:
+        if self._smoothed_pose_wc is None:
+            self._smoothed_pose_wc = np.array(pose_wc, dtype=np.float64, copy=True)
+            return self._smoothed_pose_wc
+
+        alpha = self.pose_smoothing_alpha * max(0.25, confidence)
+        alpha = float(max(0.0, min(1.0, alpha)))
+        previous_pose = self._smoothed_pose_wc
+
+        previous_translation = previous_pose[:3, 3]
+        current_translation = pose_wc[:3, 3]
+        blended_translation = (1.0 - alpha) * previous_translation + alpha * current_translation
+
+        previous_quat = self._rotation_matrix_to_quaternion(previous_pose[:3, :3])
+        current_quat = self._rotation_matrix_to_quaternion(pose_wc[:3, :3])
+        blended_quat = self._quaternion_slerp(previous_quat, current_quat, alpha)
+
+        smoothed_pose = np.eye(4, dtype=np.float64)
+        smoothed_pose[:3, :3] = self._quaternion_to_rotation_matrix(blended_quat)
+        smoothed_pose[:3, 3] = blended_translation
+        self._smoothed_pose_wc = smoothed_pose
+        return smoothed_pose
 
     def _publish_overlay_inputs(self, stamp: object, gray: np.ndarray) -> None:
         if self._camera_matrix is None:
@@ -905,6 +971,56 @@ class MonocularSlamNode(Node):
             qy = (rotation[1, 2] + rotation[2, 1]) / s
             qz = 0.25 * s
         return float(qx), float(qy), float(qz), float(qw)
+
+    def _quaternion_to_rotation_matrix(self, quat: Tuple[float, float, float, float]) -> np.ndarray:
+        x, y, z, w = quat
+        xx = x * x
+        yy = y * y
+        zz = z * z
+        xy = x * y
+        xz = x * z
+        yz = y * z
+        wx = w * x
+        wy = w * y
+        wz = w * z
+        return np.array(
+            [
+                [1.0 - 2.0 * (yy + zz), 2.0 * (xy - wz), 2.0 * (xz + wy)],
+                [2.0 * (xy + wz), 1.0 - 2.0 * (xx + zz), 2.0 * (yz - wx)],
+                [2.0 * (xz - wy), 2.0 * (yz + wx), 1.0 - 2.0 * (xx + yy)],
+            ],
+            dtype=np.float64,
+        )
+
+    def _quaternion_slerp(
+        self,
+        q0: Tuple[float, float, float, float],
+        q1: Tuple[float, float, float, float],
+        t: float,
+    ) -> Tuple[float, float, float, float]:
+        q0_arr = np.array(q0, dtype=np.float64)
+        q1_arr = np.array(q1, dtype=np.float64)
+        dot = float(np.dot(q0_arr, q1_arr))
+        if dot < 0.0:
+            q1_arr = -q1_arr
+            dot = -dot
+        dot = max(-1.0, min(1.0, dot))
+
+        if dot > 0.9995:
+            result = q0_arr + t * (q1_arr - q0_arr)
+            result /= np.linalg.norm(result)
+            return float(result[0]), float(result[1]), float(result[2]), float(result[3])
+
+        theta_0 = math.acos(dot)
+        sin_theta_0 = math.sin(theta_0)
+        theta = theta_0 * t
+        sin_theta = math.sin(theta)
+
+        s0 = math.cos(theta) - dot * sin_theta / sin_theta_0
+        s1 = sin_theta / sin_theta_0
+        result = (s0 * q0_arr) + (s1 * q1_arr)
+        result /= np.linalg.norm(result)
+        return float(result[0]), float(result[1]), float(result[2]), float(result[3])
 
     def _rotation_angle_deg(self, rotation: np.ndarray) -> float:
         cosine = (float(np.trace(rotation)) - 1.0) * 0.5
