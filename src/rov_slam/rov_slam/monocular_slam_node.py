@@ -7,6 +7,7 @@ TF transforms, and RViz-friendly map markers on the control laptop.
 
 from dataclasses import dataclass
 import math
+from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
 import cv2
@@ -59,6 +60,8 @@ class MonocularSlamNode(Node):
         self.declare_parameter('processing_scale', 0.5)
         self.declare_parameter('use_clahe', True)
         self.declare_parameter('horizontal_fov_deg', 85.0)
+        self.declare_parameter('calibration_file', '~/.ros/rov_camera_calibration.yaml')
+        self.declare_parameter('use_fallback_pose_estimation', False)
 
         # Optional calibrated intrinsics. If all are zero, the node derives a
         # working pinhole model from the frame size and horizontal FOV.
@@ -93,6 +96,7 @@ class MonocularSlamNode(Node):
         self.declare_parameter('max_pose_step_rotation_deg', 55.0)
         self.declare_parameter('max_map_radius_m', 20.0)
         self.declare_parameter('visualization_max_distance_m', 10.0)
+        self.declare_parameter('min_map_point_observations', 3)
         self.declare_parameter('max_map_points', 3000)
         self.declare_parameter('visualization_point_limit', 1500)
         self.declare_parameter('path_point_limit', 5000)
@@ -109,6 +113,10 @@ class MonocularSlamNode(Node):
         self.processing_scale = float(self.get_parameter('processing_scale').value)
         self.use_clahe = bool(self.get_parameter('use_clahe').value)
         self.horizontal_fov_deg = float(self.get_parameter('horizontal_fov_deg').value)
+        self.calibration_file = str(self.get_parameter('calibration_file').value)
+        self.use_fallback_pose_estimation = bool(
+            self.get_parameter('use_fallback_pose_estimation').value
+        )
 
         self.fx = float(self.get_parameter('fx').value)
         self.fy = float(self.get_parameter('fy').value)
@@ -155,6 +163,9 @@ class MonocularSlamNode(Node):
         self.max_map_radius_m = float(self.get_parameter('max_map_radius_m').value)
         self.visualization_max_distance_m = float(
             self.get_parameter('visualization_max_distance_m').value
+        )
+        self.min_map_point_observations = int(
+            self.get_parameter('min_map_point_observations').value
         )
         self.max_map_points = int(self.get_parameter('max_map_points').value)
         self.visualization_point_limit = int(self.get_parameter('visualization_point_limit').value)
@@ -207,6 +218,8 @@ class MonocularSlamNode(Node):
         )
         self.path_msg = Path()
         self.path_msg.header.frame_id = self.map_frame
+
+        self._try_load_calibration_file()
 
         if self.camera_info_topic:
             self.camera_info_sub = self.create_subscription(
@@ -326,7 +339,7 @@ class MonocularSlamNode(Node):
             return
 
         pose_cw, tracked_matches, inlier_mask = self._estimate_pose(state)
-        if pose_cw is None:
+        if pose_cw is None and self.use_fallback_pose_estimation:
             pose_cw = self._fallback_pose_from_previous_frame(state)
 
         if pose_cw is None:
@@ -698,6 +711,40 @@ class MonocularSlamNode(Node):
         self.overlay_camera_info_pub.publish(camera_info)
         self.overlay_camera_info_compat_pub.publish(camera_info)
 
+    def _try_load_calibration_file(self) -> None:
+        calibration_path = Path(self.calibration_file).expanduser()
+        if not calibration_path.exists():
+            self.get_logger().warn(
+                f'Calibration file not found at {calibration_path}; using CameraInfo topic or approximate intrinsics.'
+            )
+            return
+
+        storage = cv2.FileStorage(str(calibration_path), cv2.FILE_STORAGE_READ)
+        if not storage.isOpened():
+            self.get_logger().warn(f'Unable to open calibration file: {calibration_path}')
+            return
+
+        try:
+            camera_matrix = storage.getNode('camera_matrix').mat()
+            if camera_matrix is None or camera_matrix.shape != (3, 3):
+                self.get_logger().warn(
+                    f'Calibration file {calibration_path} does not contain a valid 3x3 camera_matrix.'
+                )
+                return
+
+            dist_node = storage.getNode('distortion_coefficients').mat()
+            if dist_node is None:
+                dist_node = storage.getNode('distortion_coeffs').mat()
+            if dist_node is None:
+                dist_node = np.zeros((5, 1), dtype=np.float64)
+
+            self._camera_matrix = np.array(camera_matrix, dtype=np.float64)
+            self.dist_coeffs = np.array(dist_node, dtype=np.float64).reshape(-1, 1)
+            self._intrinsics_ready = True
+            self.get_logger().info(f'Loaded camera calibration from {calibration_path}')
+        finally:
+            storage.release()
+
     def _publish_identity_tf(self, stamp: object) -> None:
         if not self.publish_tf:
             return
@@ -758,7 +805,8 @@ class MonocularSlamNode(Node):
             camera_position = pose_wc[:3, 3]
             sampled_points = [
                 point for point in sampled_points
-                if np.linalg.norm(point.point_w - camera_position) <= self.visualization_max_distance_m
+                if point.observations >= self.min_map_point_observations
+                and np.linalg.norm(point.point_w - camera_position) <= self.visualization_max_distance_m
             ]
             if len(sampled_points) > self.visualization_point_limit:
                 step = max(1, len(sampled_points) // self.visualization_point_limit)
