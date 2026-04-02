@@ -357,10 +357,13 @@ class MonocularSlamNode(Node):
         )
         self._frame_index += 1
 
+        # Always publish the live image stream so RViz stays responsive even if
+        # SLAM has not initialized or pose tracking temporarily drops out.
+        self._publish_overlay_inputs(stamp, gray, self._current_pose_cw)
+
         if not self._initialized:
             # Keep RViz image displays alive before SLAM bootstrap succeeds.
             self._publish_identity_tf(stamp)
-            self._publish_overlay_inputs(stamp, gray, None)
             self._bootstrap_or_store_reference(state)
             return
 
@@ -380,7 +383,6 @@ class MonocularSlamNode(Node):
         self._last_frame = state
         published_pose_wc = self._smooth_pose_for_publish(np.linalg.inv(pose_cw), confidence)
         self._publish_state(state, published_pose_wc)
-        self._publish_overlay_inputs(stamp, gray, pose_cw)
 
         if confidence >= self.min_pose_confidence and self._needs_keyframe(state):
             self._create_keyframe_and_expand_map(state)
