@@ -69,7 +69,6 @@ class MonocularSlamNode(Node):
         self.declare_parameter('processing_scale', 0.5)
         self.declare_parameter('use_clahe', True)
         self.declare_parameter('horizontal_fov_deg', 85.0)
-        self.declare_parameter('image_rotation_degrees', 90)
         self.declare_parameter('calibration_file', '~/.ros/rov_camera_calibration.yaml')
         self.declare_parameter('use_fallback_pose_estimation', False)
 
@@ -127,7 +126,6 @@ class MonocularSlamNode(Node):
         self.processing_scale = float(self.get_parameter('processing_scale').value)
         self.use_clahe = bool(self.get_parameter('use_clahe').value)
         self.horizontal_fov_deg = float(self.get_parameter('horizontal_fov_deg').value)
-        self.image_rotation_degrees = int(self.get_parameter('image_rotation_degrees').value)
         self.calibration_file = str(self.get_parameter('calibration_file').value)
         self.use_fallback_pose_estimation = bool(
             self.get_parameter('use_fallback_pose_estimation').value
@@ -327,7 +325,6 @@ class MonocularSlamNode(Node):
             return
 
         processed = frame_bgr
-        processed = self._apply_image_rotation(processed)
         if self.processing_scale > 0.0 and abs(self.processing_scale - 1.0) > 1e-6:
             processed = cv2.resize(
                 processed,
@@ -818,13 +815,9 @@ class MonocularSlamNode(Node):
         if not keypoints:
             return
 
-        sorted_keypoints = sorted(
-            keypoints,
-            key=lambda kp: (-float(getattr(kp, 'response', 0.0)), float(kp.pt[1]), float(kp.pt[0])),
-        )
-        step = max(1, len(sorted_keypoints) // 250)
+        step = max(1, len(keypoints) // 250)
         height, width = image_bgr.shape[:2]
-        for index, keypoint in enumerate(sorted_keypoints[::step]):
+        for index, keypoint in enumerate(keypoints[::step]):
             u, v = keypoint.pt
             if not np.isfinite(u) or not np.isfinite(v):
                 continue
@@ -1147,15 +1140,11 @@ class MonocularSlamNode(Node):
         cosine = np.clip(cosine, -1.0, 1.0)
         return np.degrees(np.arccos(cosine))
 
-    def _trim_map_points(self, pose_wc: Optional[np.ndarray] = None) -> None:
-        if pose_wc is None and self._current_pose_cw is not None:
-            pose_wc = np.linalg.inv(self._current_pose_cw)
-
-        if self.max_map_radius_m > 0.0 and self._map_points and pose_wc is not None:
-            camera_position = pose_wc[:3, 3]
+    def _trim_map_points(self) -> None:
+        if self.max_map_radius_m > 0.0 and self._map_points:
             self._map_points = [
                 point for point in self._map_points
-                if np.linalg.norm(point.point_w - camera_position) <= self.max_map_radius_m
+                if np.linalg.norm(point.point_w) <= self.max_map_radius_m
             ]
 
         if len(self._map_points) <= self.max_map_points:
@@ -1166,22 +1155,6 @@ class MonocularSlamNode(Node):
             reverse=True,
         )
         self._map_points = self._map_points[: self.max_map_points]
-
-    def _apply_image_rotation(self, image_bgr: np.ndarray) -> np.ndarray:
-        rotation = int(self.image_rotation_degrees) % 360
-        if rotation == 0:
-            return image_bgr
-        if rotation == 90:
-            return cv2.rotate(image_bgr, cv2.ROTATE_90_CLOCKWISE)
-        if rotation == 180:
-            return cv2.rotate(image_bgr, cv2.ROTATE_180)
-        if rotation == 270:
-            return cv2.rotate(image_bgr, cv2.ROTATE_90_COUNTERCLOCKWISE)
-
-        self.get_logger().warn(
-            f'image_rotation_degrees={self.image_rotation_degrees} is not a multiple of 90; skipping rotation.'
-        )
-        return image_bgr
 
     def destroy_node(self) -> bool:
         """Ensure no OpenCV windows remain open."""
