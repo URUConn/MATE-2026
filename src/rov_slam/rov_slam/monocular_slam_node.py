@@ -112,6 +112,7 @@ class MonocularSlamNode(Node):
         self.declare_parameter('visualization_point_limit', 1500)
         self.declare_parameter('path_point_limit', 5000)
         self.declare_parameter('overlay_image_topic', '/rov/slam/image')
+        self.declare_parameter('overlay_rendered_image_topic', '/rov/slam/overlay_image')
         self.declare_parameter('overlay_camera_info_topic', '/rov/slam/camera_info')
         self.declare_parameter('overlay_camera_info_compat_topic', '/rov/slam/image/camera_info')
 
@@ -187,6 +188,9 @@ class MonocularSlamNode(Node):
         self.visualization_point_limit = int(self.get_parameter('visualization_point_limit').value)
         self.path_point_limit = int(self.get_parameter('path_point_limit').value)
         self.overlay_image_topic = str(self.get_parameter('overlay_image_topic').value)
+        self.overlay_rendered_image_topic = str(
+            self.get_parameter('overlay_rendered_image_topic').value
+        )
         self.overlay_camera_info_topic = str(
             self.get_parameter('overlay_camera_info_topic').value
         )
@@ -223,6 +227,11 @@ class MonocularSlamNode(Node):
         self.path_pub = self.create_publisher(Path, '/rov/slam/path', 10)
         self.marker_pub = self.create_publisher(MarkerArray, '/rov/slam/map_points', 10)
         self.overlay_image_pub = self.create_publisher(Image, self.overlay_image_topic, 10)
+        self.overlay_rendered_image_pub = self.create_publisher(
+            Image,
+            self.overlay_rendered_image_topic,
+            10,
+        )
         self.overlay_camera_info_pub = self.create_publisher(
             CameraInfo,
             self.overlay_camera_info_topic,
@@ -339,7 +348,6 @@ class MonocularSlamNode(Node):
             gray = cv2.undistort(gray, self._camera_matrix, self.dist_coeffs)
 
         keypoints, descriptors = self.orb.detectAndCompute(gray, None)
-        self._publish_overlay_inputs(stamp, gray)
         state = FrameState(
             stamp=stamp,
             image_gray=gray,
@@ -371,6 +379,7 @@ class MonocularSlamNode(Node):
         self._last_frame = state
         published_pose_wc = self._smooth_pose_for_publish(np.linalg.inv(pose_cw), confidence)
         self._publish_state(state, published_pose_wc)
+        self._publish_overlay_inputs(stamp, gray, pose_cw)
 
         if confidence >= self.min_pose_confidence and self._needs_keyframe(state):
             self._create_keyframe_and_expand_map(state)
@@ -753,7 +762,12 @@ class MonocularSlamNode(Node):
         self._smoothed_pose_wc = smoothed_pose
         return smoothed_pose
 
-    def _publish_overlay_inputs(self, stamp: object, gray: np.ndarray) -> None:
+    def _publish_overlay_inputs(
+        self,
+        stamp: object,
+        gray: np.ndarray,
+        pose_cw: Optional[np.ndarray],
+    ) -> None:
         if self._camera_matrix is None:
             return
 
@@ -761,6 +775,15 @@ class MonocularSlamNode(Node):
         image_msg.header.stamp = stamp
         image_msg.header.frame_id = self.camera_frame
         self.overlay_image_pub.publish(image_msg)
+
+        overlay_bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+        if pose_cw is not None and self._map_points:
+            self._draw_overlay_points(overlay_bgr, pose_cw)
+
+        overlay_msg = self.bridge.cv2_to_imgmsg(overlay_bgr, encoding='bgr8')
+        overlay_msg.header.stamp = stamp
+        overlay_msg.header.frame_id = self.camera_frame
+        self.overlay_rendered_image_pub.publish(overlay_msg)
 
         camera_info = CameraInfo()
         camera_info.header.stamp = stamp
@@ -776,6 +799,41 @@ class MonocularSlamNode(Node):
         camera_info.p = projection.reshape(-1).tolist()
         self.overlay_camera_info_pub.publish(camera_info)
         self.overlay_camera_info_compat_pub.publish(camera_info)
+
+    def _draw_overlay_points(self, image_bgr: np.ndarray, pose_cw: np.ndarray) -> None:
+        usable_points = [
+            point
+            for point in self._map_points
+            if point.observations >= self.min_map_point_observations
+            and np.linalg.norm(point.point_w) <= self.max_map_radius_m
+        ]
+        if not usable_points:
+            return
+
+        if len(usable_points) > self.visualization_point_limit:
+            step = max(1, len(usable_points) // self.visualization_point_limit)
+            usable_points = usable_points[::step][: self.visualization_point_limit]
+
+        points_w = np.array([point.point_w for point in usable_points], dtype=np.float64)
+        rvec, _ = cv2.Rodrigues(pose_cw[:3, :3])
+        tvec = pose_cw[:3, 3].reshape(3, 1)
+        projected, _ = cv2.projectPoints(
+            points_w,
+            rvec,
+            tvec,
+            self._camera_matrix,
+            self.dist_coeffs,
+        )
+        projected = projected.reshape(-1, 2)
+
+        height, width = image_bgr.shape[:2]
+        for idx, (u, v) in enumerate(projected):
+            if not np.isfinite(u) or not np.isfinite(v):
+                continue
+            if u < 0 or v < 0 or u >= width or v >= height:
+                continue
+            color = (0, 255, 255) if idx % 3 else (0, 128, 255)
+            cv2.circle(image_bgr, (int(u), int(v)), 2, color, -1)
 
     def _try_load_calibration_file(self) -> None:
         calibration_path = Path(self.calibration_file).expanduser()
