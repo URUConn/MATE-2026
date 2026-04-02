@@ -85,9 +85,19 @@ class MonocularSlamNode(Node):
         self.declare_parameter('keyframe_rotation_threshold_deg', 6.0)
         self.declare_parameter('triangulation_reprojection_threshold_px', 3.0)
         self.declare_parameter('triangulation_min_matches', 80)
+        self.declare_parameter('min_pnp_inlier_ratio', 0.28)
+        self.declare_parameter('triangulation_min_depth_m', 0.05)
+        self.declare_parameter('triangulation_max_depth_m', 12.0)
+        self.declare_parameter('min_triangulation_parallax_deg', 0.6)
+        self.declare_parameter('max_pose_step_translation', 2.5)
+        self.declare_parameter('max_pose_step_rotation_deg', 55.0)
+        self.declare_parameter('max_map_radius_m', 20.0)
+        self.declare_parameter('visualization_max_distance_m', 10.0)
         self.declare_parameter('max_map_points', 3000)
         self.declare_parameter('visualization_point_limit', 1500)
         self.declare_parameter('path_point_limit', 5000)
+        self.declare_parameter('overlay_image_topic', '/rov/slam/image')
+        self.declare_parameter('overlay_camera_info_topic', '/rov/slam/camera_info')
 
         self.input_mode = str(self.get_parameter('input_mode').value).lower()
         self.image_topic = str(self.get_parameter('image_topic').value)
@@ -133,9 +143,25 @@ class MonocularSlamNode(Node):
             self.get_parameter('triangulation_reprojection_threshold_px').value
         )
         self.triangulation_min_matches = int(self.get_parameter('triangulation_min_matches').value)
+        self.min_pnp_inlier_ratio = float(self.get_parameter('min_pnp_inlier_ratio').value)
+        self.triangulation_min_depth_m = float(self.get_parameter('triangulation_min_depth_m').value)
+        self.triangulation_max_depth_m = float(self.get_parameter('triangulation_max_depth_m').value)
+        self.min_triangulation_parallax_deg = float(
+            self.get_parameter('min_triangulation_parallax_deg').value
+        )
+        self.max_pose_step_translation = float(self.get_parameter('max_pose_step_translation').value)
+        self.max_pose_step_rotation_deg = float(self.get_parameter('max_pose_step_rotation_deg').value)
+        self.max_map_radius_m = float(self.get_parameter('max_map_radius_m').value)
+        self.visualization_max_distance_m = float(
+            self.get_parameter('visualization_max_distance_m').value
+        )
         self.max_map_points = int(self.get_parameter('max_map_points').value)
         self.visualization_point_limit = int(self.get_parameter('visualization_point_limit').value)
         self.path_point_limit = int(self.get_parameter('path_point_limit').value)
+        self.overlay_image_topic = str(self.get_parameter('overlay_image_topic').value)
+        self.overlay_camera_info_topic = str(
+            self.get_parameter('overlay_camera_info_topic').value
+        )
 
         self.bridge = CvBridge()
         self.tf_broadcaster = TransformBroadcaster(self)
@@ -164,6 +190,12 @@ class MonocularSlamNode(Node):
         self.odom_pub = self.create_publisher(Odometry, '/rov/slam/odom', 10)
         self.path_pub = self.create_publisher(Path, '/rov/slam/path', 10)
         self.marker_pub = self.create_publisher(MarkerArray, '/rov/slam/map_points', 10)
+        self.overlay_image_pub = self.create_publisher(Image, self.overlay_image_topic, 10)
+        self.overlay_camera_info_pub = self.create_publisher(
+            CameraInfo,
+            self.overlay_camera_info_topic,
+            10,
+        )
         self.path_msg = Path()
         self.path_msg.header.frame_id = self.map_frame
 
@@ -268,6 +300,7 @@ class MonocularSlamNode(Node):
             gray = cv2.undistort(gray, self._camera_matrix, self.dist_coeffs)
 
         keypoints, descriptors = self.orb.detectAndCompute(gray, None)
+        self._publish_overlay_inputs(stamp, gray)
         state = FrameState(
             stamp=stamp,
             image_gray=gray,
@@ -421,6 +454,13 @@ class MonocularSlamNode(Node):
 
         rotation, _ = cv2.Rodrigues(rvec)
         pose_cw = self._compose_pose(rotation, tvec)
+        if self._last_frame is not None and self._last_frame.pose_cw is not None:
+            if not self._is_pose_step_reasonable(pose_cw, self._last_frame.pose_cw):
+                return None, matches, inliers
+
+        inlier_ratio = float(len(inlier_indices)) / float(max(1, len(matches)))
+        if inlier_ratio < self.min_pnp_inlier_ratio:
+            return None, matches, inliers
 
         for index in inlier_indices:
             map_point = self._map_points[matches[index].trainIdx]
@@ -470,7 +510,10 @@ class MonocularSlamNode(Node):
 
         delta_pose = self._compose_pose(rotation, translation)
         if self._last_frame.pose_cw is not None:
-            return delta_pose @ self._last_frame.pose_cw
+            candidate_pose = delta_pose @ self._last_frame.pose_cw
+            if not self._is_pose_step_reasonable(candidate_pose, self._last_frame.pose_cw):
+                return None
+            return candidate_pose
         return delta_pose
 
     def _needs_keyframe(self, state: FrameState) -> bool:
@@ -536,8 +579,16 @@ class MonocularSlamNode(Node):
         cur_cam = (current_pose[:3, :3] @ points_w.T + current_pose[:3, 3:4]).T
 
         valid = np.isfinite(points_w).all(axis=1)
-        valid &= ref_cam[:, 2] > 0.0
-        valid &= cur_cam[:, 2] > 0.0
+        valid &= ref_cam[:, 2] > self.triangulation_min_depth_m
+        valid &= cur_cam[:, 2] > self.triangulation_min_depth_m
+        valid &= ref_cam[:, 2] < self.triangulation_max_depth_m
+        valid &= cur_cam[:, 2] < self.triangulation_max_depth_m
+
+        parallax_deg = self._triangulation_parallax_deg(reference_pose, current_pose, points_w)
+        valid &= parallax_deg >= self.min_triangulation_parallax_deg
+
+        world_norm = np.linalg.norm(points_w, axis=1)
+        valid &= world_norm < self.max_map_radius_m
 
         ref_proj = self._project_points(reference.pose_cw, points_w)
         cur_proj = self._project_points(current.pose_cw, points_w)
@@ -612,6 +663,29 @@ class MonocularSlamNode(Node):
         self._publish_tf(state.stamp, pose_wc)
         self._publish_markers(state, pose_wc)
 
+    def _publish_overlay_inputs(self, stamp: object, gray: np.ndarray) -> None:
+        if self._camera_matrix is None:
+            return
+
+        image_msg = self.bridge.cv2_to_imgmsg(gray, encoding='mono8')
+        image_msg.header.stamp = stamp
+        image_msg.header.frame_id = self.camera_frame
+        self.overlay_image_pub.publish(image_msg)
+
+        camera_info = CameraInfo()
+        camera_info.header.stamp = stamp
+        camera_info.header.frame_id = self.camera_frame
+        camera_info.height = int(gray.shape[0])
+        camera_info.width = int(gray.shape[1])
+        camera_info.distortion_model = 'plumb_bob'
+        camera_info.k = self._camera_matrix.reshape(-1).tolist()
+        camera_info.d = self.dist_coeffs.reshape(-1).tolist()
+        camera_info.r = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+        projection = np.zeros((3, 4), dtype=np.float64)
+        projection[:3, :3] = self._camera_matrix
+        camera_info.p = projection.reshape(-1).tolist()
+        self.overlay_camera_info_pub.publish(camera_info)
+
     def _publish_tf(self, stamp: object, pose_wc: np.ndarray) -> None:
         if not self.publish_tf:
             return
@@ -652,6 +726,11 @@ class MonocularSlamNode(Node):
 
         if self._map_points:
             sampled_points = self._map_points
+            camera_position = pose_wc[:3, 3]
+            sampled_points = [
+                point for point in sampled_points
+                if np.linalg.norm(point.point_w - camera_position) <= self.visualization_max_distance_m
+            ]
             if len(sampled_points) > self.visualization_point_limit:
                 step = max(1, len(sampled_points) // self.visualization_point_limit)
                 sampled_points = sampled_points[::step][: self.visualization_point_limit]
@@ -755,7 +834,42 @@ class MonocularSlamNode(Node):
         cosine = max(-1.0, min(1.0, cosine))
         return math.degrees(math.acos(cosine))
 
+    def _is_pose_step_reasonable(self, pose_cw: np.ndarray, previous_pose_cw: np.ndarray) -> bool:
+        delta = np.linalg.inv(previous_pose_cw) @ pose_cw
+        translation = float(np.linalg.norm(delta[:3, 3]))
+        rotation_deg = self._rotation_angle_deg(delta[:3, :3])
+        return (
+            translation <= self.max_pose_step_translation
+            and rotation_deg <= self.max_pose_step_rotation_deg
+        )
+
+    def _triangulation_parallax_deg(
+        self,
+        reference_pose_cw: np.ndarray,
+        current_pose_cw: np.ndarray,
+        points_w: np.ndarray,
+    ) -> np.ndarray:
+        reference_pose_wc = np.linalg.inv(reference_pose_cw)
+        current_pose_wc = np.linalg.inv(current_pose_cw)
+        reference_center = reference_pose_wc[:3, 3]
+        current_center = current_pose_wc[:3, 3]
+
+        vec_ref = points_w - reference_center
+        vec_cur = points_w - current_center
+        norm_ref = np.linalg.norm(vec_ref, axis=1)
+        norm_cur = np.linalg.norm(vec_cur, axis=1)
+        denom = np.maximum(norm_ref * norm_cur, 1e-9)
+        cosine = np.sum(vec_ref * vec_cur, axis=1) / denom
+        cosine = np.clip(cosine, -1.0, 1.0)
+        return np.degrees(np.arccos(cosine))
+
     def _trim_map_points(self) -> None:
+        if self.max_map_radius_m > 0.0 and self._map_points:
+            self._map_points = [
+                point for point in self._map_points
+                if np.linalg.norm(point.point_w) <= self.max_map_radius_m
+            ]
+
         if len(self._map_points) <= self.max_map_points:
             return
 

@@ -35,7 +35,17 @@ monocular_slam_node:
     keyframe_rotation_threshold_deg: 6.0
     triangulation_reprojection_threshold_px: 3.0
     triangulation_min_matches: 80
+    min_pnp_inlier_ratio: 0.28
+    triangulation_min_depth_m: 0.05
+    triangulation_max_depth_m: 12.0
+    min_triangulation_parallax_deg: 0.6
+    max_pose_step_translation: 2.5
+    max_pose_step_rotation_deg: 55.0
+    max_map_radius_m: 20.0
+    visualization_max_distance_m: 10.0
     max_map_points: 3000
     visualization_point_limit: 1500
     path_point_limit: 5000
+    overlay_image_topic: /rov/slam/image
+    overlay_camera_info_topic: /rov/slam/camera_info
 

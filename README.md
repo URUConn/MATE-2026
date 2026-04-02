@@ -207,6 +207,7 @@ The launch file starts the monocular SLAM node and RViz. The RViz layout shows:
 - `TF` for the current robot pose
 - `/rov/slam/path` for the motion trail
 - `/rov/slam/map_points` for the sparse landmark map
+- `Camera Overlay` using `/rov/slam/image` + `/rov/slam/camera_info` with 3D overlay
 
 ### 6.3 Tune the camera model if needed
 
