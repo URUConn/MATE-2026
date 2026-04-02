@@ -34,7 +34,6 @@ Split into 2 main packages for the two hardware stacks, plus a shared messages p
 - `rov_control` (runs on control laptop)
   - `arm_encoder_bridge_node`
   - `qgc_video_bridge_node`
-  - `slam_image_bridge_node`
 - `rov_onboard` (runs on onboard computer)
   - `camera_node`
   - `arm_servo_node`
@@ -49,7 +48,6 @@ Split into 2 main packages for the two hardware stacks, plus a shared messages p
 | `/rov/arm/servo_command` | `rov_msgs/ArmServoCommand` | Laptop -> Onboard | 8 servo target angles in degrees             |
 | `/rov/camera/image_raw` | `sensor_msgs/Image` | Onboard -> Laptop | raw camera stream                            |
 | `/rov/camera/image_compressed` | `sensor_msgs/CompressedImage` | Onboard -> Laptop | compressed camera stream                     |
-| `/rov/slam/image_raw` | `sensor_msgs/Image` | Laptop local (from bridge) | dedicated decoded stream for SLAM            |
 
 `ArmServoCommand` axis order defaults to:
 `[base, shoulder, elbow, wrist_pitch, wrist_roll, wrist_yaw, tool_rotate, gripper]`
@@ -162,29 +160,6 @@ ros2 topic hz /rov/camera/image_compressed
 
 ---
 
-## 5.1) Real-time SLAM stream on control side (separate from QGC bridge)
-
-- `slam_image_bridge_node` subscribes to `/rov/camera/image_compressed` and republishes decoded frames to `/rov/slam/image_raw`.
-- SLAM should subscribe to `/rov/slam/image_raw`, not the QGC bridge output.
-- This keeps SLAM independent from ffmpeg/QGC transport load.
-
-Run only the SLAM bridge on the laptop:
-
-```bash
-cd ~/MATE2026
-source install/setup.bash
-ros2 launch rov_control slam_only_launch.py
-```
-
-Quick verify:
-
-```bash
-ros2 topic hz /rov/slam/image_raw
-ros2 topic echo /rov/slam/image_raw --once
-```
-
----
-
 ## 6) Arm Control Path Setup
 
 ### 6.1 Encoder publisher contract (laptop)
@@ -264,20 +239,6 @@ source install/setup.bash
 ros2 launch rov_control control_launch.py
 ```
 
-Control launch defaults now include both video consumers:
-- `qgc_video_bridge_node` (QGC UDP output)
-- `slam_image_bridge_node` (local SLAM stream)
-
-Optional toggles:
-
-```bash
-# disable QGC forwarding, keep SLAM stream
-ros2 launch rov_control control_launch.py enable_qgc_bridge:=false
-
-# disable SLAM stream, keep QGC forwarding
-ros2 launch rov_control control_launch.py enable_slam_bridge:=false
-```
-
 ---
 
 ## Key Config Files
@@ -286,7 +247,6 @@ ros2 launch rov_control control_launch.py enable_slam_bridge:=false
   - encoder input topic
   - axis scaling/offset/clamps
   - QGC bridge UDP/ffmpeg settings
-  - SLAM bridge input/output topic + QoS mode
 - `src/rov_onboard/config/onboard_params.yaml`
   - camera settings
   - PinPong + servo pin/range/timeout settings

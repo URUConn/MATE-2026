@@ -22,11 +22,3 @@ qgc_video_bridge_node:
     bitrate: 1200k
     output_format: rtp
     gop_size: 10
-
-slam_image_bridge_node:
-  ros__parameters:
-    input_topic: /rov/camera/image_compressed
-    output_topic: /rov/slam/image_raw
-    queue_depth: 1
-    use_best_effort: true
-
