@@ -358,8 +358,9 @@ class MonocularSlamNode(Node):
         self._frame_index += 1
 
         if not self._initialized:
-            # Keep RViz Camera display alive before SLAM bootstrap succeeds.
+            # Keep RViz image displays alive before SLAM bootstrap succeeds.
             self._publish_identity_tf(stamp)
+            self._publish_overlay_inputs(stamp, gray, None)
             self._bootstrap_or_store_reference(state)
             return
 
@@ -768,22 +769,22 @@ class MonocularSlamNode(Node):
         gray: np.ndarray,
         pose_cw: Optional[np.ndarray],
     ) -> None:
-        if self._camera_matrix is None:
-            return
-
         image_msg = self.bridge.cv2_to_imgmsg(gray, encoding='mono8')
         image_msg.header.stamp = stamp
         image_msg.header.frame_id = self.camera_frame
         self.overlay_image_pub.publish(image_msg)
 
         overlay_bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-        if pose_cw is not None and self._map_points:
+        if pose_cw is not None and self._camera_matrix is not None and self._map_points:
             self._draw_overlay_points(overlay_bgr, pose_cw)
 
         overlay_msg = self.bridge.cv2_to_imgmsg(overlay_bgr, encoding='bgr8')
         overlay_msg.header.stamp = stamp
         overlay_msg.header.frame_id = self.camera_frame
         self.overlay_rendered_image_pub.publish(overlay_msg)
+
+        if self._camera_matrix is None:
+            return
 
         camera_info = CameraInfo()
         camera_info.header.stamp = stamp
