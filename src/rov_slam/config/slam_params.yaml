@@ -48,4 +48,5 @@ monocular_slam_node:
     path_point_limit: 5000
     overlay_image_topic: /rov/slam/image
     overlay_camera_info_topic: /rov/slam/camera_info
+    overlay_camera_info_compat_topic: /rov/slam/image/camera_info
 

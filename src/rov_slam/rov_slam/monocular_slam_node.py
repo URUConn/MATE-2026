@@ -98,6 +98,7 @@ class MonocularSlamNode(Node):
         self.declare_parameter('path_point_limit', 5000)
         self.declare_parameter('overlay_image_topic', '/rov/slam/image')
         self.declare_parameter('overlay_camera_info_topic', '/rov/slam/camera_info')
+        self.declare_parameter('overlay_camera_info_compat_topic', '/rov/slam/image/camera_info')
 
         self.input_mode = str(self.get_parameter('input_mode').value).lower()
         self.image_topic = str(self.get_parameter('image_topic').value)
@@ -162,6 +163,9 @@ class MonocularSlamNode(Node):
         self.overlay_camera_info_topic = str(
             self.get_parameter('overlay_camera_info_topic').value
         )
+        self.overlay_camera_info_compat_topic = str(
+            self.get_parameter('overlay_camera_info_compat_topic').value
+        )
 
         self.bridge = CvBridge()
         self.tf_broadcaster = TransformBroadcaster(self)
@@ -194,6 +198,11 @@ class MonocularSlamNode(Node):
         self.overlay_camera_info_pub = self.create_publisher(
             CameraInfo,
             self.overlay_camera_info_topic,
+            10,
+        )
+        self.overlay_camera_info_compat_pub = self.create_publisher(
+            CameraInfo,
+            self.overlay_camera_info_compat_topic,
             10,
         )
         self.path_msg = Path()
@@ -311,6 +320,8 @@ class MonocularSlamNode(Node):
         self._frame_index += 1
 
         if not self._initialized:
+            # Keep RViz Camera display alive before SLAM bootstrap succeeds.
+            self._publish_identity_tf(stamp)
             self._bootstrap_or_store_reference(state)
             return
 
@@ -685,6 +696,24 @@ class MonocularSlamNode(Node):
         projection[:3, :3] = self._camera_matrix
         camera_info.p = projection.reshape(-1).tolist()
         self.overlay_camera_info_pub.publish(camera_info)
+        self.overlay_camera_info_compat_pub.publish(camera_info)
+
+    def _publish_identity_tf(self, stamp: object) -> None:
+        if not self.publish_tf:
+            return
+
+        tf_msg = TransformStamped()
+        tf_msg.header.stamp = stamp
+        tf_msg.header.frame_id = self.map_frame
+        tf_msg.child_frame_id = self.camera_frame
+        tf_msg.transform.translation.x = 0.0
+        tf_msg.transform.translation.y = 0.0
+        tf_msg.transform.translation.z = 0.0
+        tf_msg.transform.rotation.x = 0.0
+        tf_msg.transform.rotation.y = 0.0
+        tf_msg.transform.rotation.z = 0.0
+        tf_msg.transform.rotation.w = 1.0
+        self.tf_broadcaster.sendTransform(tf_msg)
 
     def _publish_tf(self, stamp: object, pose_wc: np.ndarray) -> None:
         if not self.publish_tf:
