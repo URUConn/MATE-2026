@@ -42,7 +42,7 @@ Visualization Manager:
       Enabled: true
       Name: Camera Overlay
       Image Topic: /rov/slam/image
-      Info Topic: /rov/slam/camera_info
+      Camera Info Topic: /rov/slam/camera_info
       Overlay Alpha: 0.5
       Visibility: true
   Tools:
