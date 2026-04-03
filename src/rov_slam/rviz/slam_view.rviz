@@ -37,6 +37,10 @@ Visualization Manager:
     - Class: rviz_default_plugins/Image
       Enabled: true
       Name: Camera Image (2D)
+      Topic: /rov/slam/image
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: HUD Overlay Image
       Topic: /rov/slam/overlay_image
   Tools:
     - Class: rviz_default_plugins/Interact
