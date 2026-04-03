@@ -837,6 +837,12 @@ class MonocularSlamNode(Node):
         self._smoothed_pose_wc = smoothed_pose
         return smoothed_pose
 
+    def _publish_raw_image(self, stamp: object, gray: np.ndarray) -> None:
+        image_msg = self.bridge.cv2_to_imgmsg(gray, encoding='mono8')
+        image_msg.header.stamp = stamp
+        image_msg.header.frame_id = self.camera_frame
+        self.overlay_image_pub.publish(image_msg)
+
     def _publish_overlay_inputs(
         self,
         stamp: object,
