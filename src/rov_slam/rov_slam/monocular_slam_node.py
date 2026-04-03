@@ -843,6 +843,9 @@ class MonocularSlamNode(Node):
         gray: np.ndarray,
         pose_cw: Optional[np.ndarray],
         keypoints: Optional[List[cv2.KeyPoint]] = None,
+        status_text: str = '',
+        status_color: Tuple[int, int, int] = (0, 255, 0),
+        status_lines: Optional[List[str]] = None,
     ) -> None:
         image_msg = self.bridge.cv2_to_imgmsg(gray, encoding='mono8')
         image_msg.header.stamp = stamp
@@ -854,6 +857,7 @@ class MonocularSlamNode(Node):
             self._draw_keypoints(overlay_bgr, keypoints)
         if pose_cw is not None and self._camera_matrix is not None and self._map_points:
             self._draw_overlay_points(overlay_bgr, pose_cw)
+        self._draw_status_box(overlay_bgr, status_text, status_color, status_lines or [])
 
         overlay_msg = self.bridge.cv2_to_imgmsg(overlay_bgr, encoding='bgr8')
         overlay_msg.header.stamp = stamp
@@ -878,6 +882,43 @@ class MonocularSlamNode(Node):
         self.overlay_camera_info_pub.publish(camera_info)
         self.overlay_camera_info_compat_pub.publish(camera_info)
 
+    def _draw_status_box(
+        self,
+        image_bgr: np.ndarray,
+        status_text: str,
+        status_color: Tuple[int, int, int],
+        status_lines: List[str],
+    ) -> None:
+        lines = [status_text] if status_text else []
+        lines.extend(status_lines)
+        if not lines:
+            return
+
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.48
+        thickness = 1
+        padding = 8
+        line_gap = 5
+
+        sizes = [cv2.getTextSize(line, font, font_scale, thickness)[0] for line in lines]
+        max_w = max((size[0] for size in sizes), default=0)
+        max_h = max((size[1] for size in sizes), default=14)
+        box_w = max_w + padding * 2
+        box_h = padding * 2 + len(lines) * max_h + max(0, len(lines) - 1) * line_gap
+
+        x0, y0 = 8, 8
+        x1, y1 = x0 + box_w, y0 + box_h
+        overlay = image_bgr.copy()
+        cv2.rectangle(overlay, (x0, y0), (x1, y1), (0, 0, 0), -1)
+        cv2.addWeighted(overlay, 0.6, image_bgr, 0.4, 0, image_bgr)
+        cv2.rectangle(image_bgr, (x0, y0), (x1, y1), status_color, 1)
+
+        y = y0 + padding + max_h
+        for index, line in enumerate(lines):
+            color = status_color if index == 0 else (235, 235, 235)
+            cv2.putText(image_bgr, line, (x0 + padding, y), font, font_scale, color, thickness, cv2.LINE_AA)
+            y += max_h + line_gap
+
     def _draw_keypoints(self, image_bgr: np.ndarray, keypoints: List[cv2.KeyPoint]) -> None:
         if not keypoints:
             return
@@ -897,12 +938,16 @@ class MonocularSlamNode(Node):
             cv2.circle(image_bgr, (int(u), int(v)), 2, (0, 255, 0), -1)
 
     def _draw_overlay_points(self, image_bgr: np.ndarray, pose_cw: np.ndarray) -> None:
-        usable_points = [
-            point
-            for point in self._map_points
-            if point.observations >= self.min_map_point_observations
-            and np.linalg.norm(point.point_w) <= self.max_map_radius_m
-        ]
+        camera_position = np.linalg.inv(pose_cw)[:3, 3]
+        usable_points = sorted(
+            [
+                point
+                for point in self._map_points
+                if point.observations >= self.min_map_point_observations
+                and np.linalg.norm(point.point_w - camera_position) <= self.max_map_radius_m
+            ],
+            key=lambda point: (-point.observations, -point.last_seen_frame),
+        )
         if not usable_points:
             return
 
@@ -923,13 +968,12 @@ class MonocularSlamNode(Node):
         projected = projected.reshape(-1, 2)
 
         height, width = image_bgr.shape[:2]
-        for idx, (u, v) in enumerate(projected):
+        for u, v in projected:
             if not np.isfinite(u) or not np.isfinite(v):
                 continue
             if u < 0 or v < 0 or u >= width or v >= height:
                 continue
-            color = (0, 255, 255) if idx % 3 else (0, 128, 255)
-            cv2.circle(image_bgr, (int(u), int(v)), 2, color, -1)
+            cv2.circle(image_bgr, (int(u), int(v)), 2, (0, 255, 255), -1)
 
     def _try_load_calibration_file(self) -> None:
         calibration_path = FilePath(self.calibration_file).expanduser()
