@@ -101,6 +101,7 @@ class MonocularSlamNode(Node):
         self.declare_parameter('max_pnp_median_reprojection_px', 2.5)
         self.declare_parameter('min_pose_confidence', 0.25)
         self.declare_parameter('pose_smoothing_alpha', 0.25)
+        self.declare_parameter('pose_hold_timeout_sec', 0.75)
         self.declare_parameter('triangulation_min_depth_m', 0.05)
         self.declare_parameter('triangulation_max_depth_m', 12.0)
         self.declare_parameter('min_triangulation_parallax_deg', 0.6)
@@ -171,6 +172,7 @@ class MonocularSlamNode(Node):
         )
         self.min_pose_confidence = float(self.get_parameter('min_pose_confidence').value)
         self.pose_smoothing_alpha = float(self.get_parameter('pose_smoothing_alpha').value)
+        self.pose_hold_timeout_sec = float(self.get_parameter('pose_hold_timeout_sec').value)
         self.triangulation_min_depth_m = float(self.get_parameter('triangulation_min_depth_m').value)
         self.triangulation_max_depth_m = float(self.get_parameter('triangulation_max_depth_m').value)
         self.min_triangulation_parallax_deg = float(
@@ -226,6 +228,9 @@ class MonocularSlamNode(Node):
         self._map_points: List[MapPoint] = []
         self._current_pose_cw = np.eye(4, dtype=np.float64)
         self._smoothed_pose_wc: Optional[np.ndarray] = None
+        self._last_good_pose_cw: Optional[np.ndarray] = None
+        self._last_good_pose_sec: Optional[float] = None
+        self._hold_pose_until_sec: Optional[float] = None
 
         self.pose_pub = self.create_publisher(PoseStamped, '/rov/slam/pose', 10)
         self.odom_pub = self.create_publisher(Odometry, '/rov/slam/odom', 10)
@@ -361,6 +366,7 @@ class MonocularSlamNode(Node):
             frame_index=self._frame_index,
         )
         self._frame_index += 1
+        now_sec = self.get_clock().now().nanoseconds / 1e9
 
         # Always publish the live image stream so RViz stays responsive even if
         # SLAM has not initialized or pose tracking temporarily drops out.
@@ -379,12 +385,24 @@ class MonocularSlamNode(Node):
             pose_cw = self._fallback_pose_from_previous_frame(state)
 
         if pose_cw is None:
+            if self._should_hold_last_pose(now_sec):
+                held_pose_cw = np.array(self._last_good_pose_cw, copy=True)  # type: ignore[arg-type]
+                state.pose_cw = held_pose_cw
+                self._current_pose_cw = held_pose_cw
+                held_pose_wc = self._smooth_pose_for_publish(np.linalg.inv(held_pose_cw), 0.0)
+                self._publish_state(state, held_pose_wc)
+                self._trim_map_points(np.linalg.inv(held_pose_cw))
+                return
+
             if self._last_frame is None:
                 self._last_frame = state
             return
 
         state.pose_cw = pose_cw
         self._current_pose_cw = pose_cw
+        self._last_good_pose_cw = np.array(pose_cw, copy=True)
+        self._last_good_pose_sec = now_sec
+        self._hold_pose_until_sec = now_sec + self.pose_hold_timeout_sec
         self._last_frame = state
         published_pose_wc = self._smooth_pose_for_publish(np.linalg.inv(pose_cw), confidence)
         self._publish_state(state, published_pose_wc)
@@ -815,16 +833,19 @@ class MonocularSlamNode(Node):
         if not keypoints:
             return
 
-        step = max(1, len(keypoints) // 250)
+        sorted_keypoints = sorted(
+            keypoints,
+            key=lambda kp: (-float(getattr(kp, 'response', 0.0)), float(kp.pt[1]), float(kp.pt[0])),
+        )
+        step = max(1, len(sorted_keypoints) // 120)
         height, width = image_bgr.shape[:2]
-        for index, keypoint in enumerate(keypoints[::step]):
+        for keypoint in sorted_keypoints[::step]:
             u, v = keypoint.pt
             if not np.isfinite(u) or not np.isfinite(v):
                 continue
             if u < 0 or v < 0 or u >= width or v >= height:
                 continue
-            color = (0, 255, 0) if index % 2 == 0 else (255, 255, 0)
-            cv2.circle(image_bgr, (int(u), int(v)), 2, color, -1)
+            cv2.circle(image_bgr, (int(u), int(v)), 2, (0, 255, 0), -1)
 
     def _draw_overlay_points(self, image_bgr: np.ndarray, pose_cw: np.ndarray) -> None:
         usable_points = [
@@ -968,6 +989,13 @@ class MonocularSlamNode(Node):
         else:
             map_marker.action = Marker.DELETE
 
+        # Make the map visually obvious in RViz by using one clear color and a second
+        # marker that shows the current camera center in the same frame.
+        map_marker.color.r = 0.0
+        map_marker.color.g = 0.9
+        map_marker.color.b = 0.9
+        map_marker.color.a = 1.0
+
         current_marker = Marker()
         current_marker.header.stamp = state.stamp
         current_marker.header.frame_id = self.map_frame
@@ -986,6 +1014,11 @@ class MonocularSlamNode(Node):
 
         marker_array.markers = [map_marker, current_marker]
         self.marker_pub.publish(marker_array)
+
+    def _should_hold_last_pose(self, now_sec: float) -> bool:
+        if self._last_good_pose_cw is None or self._hold_pose_until_sec is None:
+            return False
+        return now_sec <= self._hold_pose_until_sec
 
     def _build_initial_camera_matrix(self, width: int, height: int) -> np.ndarray:
         fx = self.fx if self.fx > 0.0 else width / (2.0 * math.tan(math.radians(self.horizontal_fov_deg) / 2.0))
