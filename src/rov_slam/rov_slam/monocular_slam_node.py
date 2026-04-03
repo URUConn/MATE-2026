@@ -368,13 +368,22 @@ class MonocularSlamNode(Node):
         self._frame_index += 1
         now_sec = self.get_clock().now().nanoseconds / 1e9
 
-        # Always publish the live image stream so RViz stays responsive even if
+        # Always publish the live raw image stream so RViz stays responsive even if
         # SLAM has not initialized or pose tracking temporarily drops out.
-        self._publish_overlay_inputs(stamp, gray, self._current_pose_cw, state.keypoints)
+        self._publish_raw_image(stamp, gray)
 
         if not self._initialized:
             # Keep RViz image displays alive before SLAM bootstrap succeeds.
             self._publish_identity_tf(stamp)
+            self._publish_overlay_inputs(
+                stamp,
+                gray,
+                None,
+                state.keypoints,
+                'BOOTSTRAPPING',
+                (0, 180, 255),
+                [f'frame {state.frame_index}', f'kpts {len(state.keypoints)}'],
+            )
             self._bootstrap_or_store_reference(state)
             return
 
@@ -391,11 +400,37 @@ class MonocularSlamNode(Node):
                 self._current_pose_cw = held_pose_cw
                 held_pose_wc = self._smooth_pose_for_publish(np.linalg.inv(held_pose_cw), 0.0)
                 self._publish_state(state, held_pose_wc)
+                self._publish_overlay_inputs(
+                    stamp,
+                    gray,
+                    held_pose_cw,
+                    state.keypoints,
+                    'HOLDING LAST POSE',
+                    (0, 200, 255),
+                    [
+                        f'frame {state.frame_index}',
+                        f'kpts {len(state.keypoints)}',
+                        f'map {len(self._map_points)}',
+                    ],
+                )
                 self._trim_map_points(np.linalg.inv(held_pose_cw))
                 return
 
             if self._last_frame is None:
                 self._last_frame = state
+            self._publish_overlay_inputs(
+                stamp,
+                gray,
+                self._current_pose_cw,
+                state.keypoints,
+                'TRACKING LOST',
+                (0, 0, 255),
+                [
+                    f'frame {state.frame_index}',
+                    f'kpts {len(state.keypoints)}',
+                    f'map {len(self._map_points)}',
+                ],
+            )
             return
 
         state.pose_cw = pose_cw
@@ -406,6 +441,20 @@ class MonocularSlamNode(Node):
         self._last_frame = state
         published_pose_wc = self._smooth_pose_for_publish(np.linalg.inv(pose_cw), confidence)
         self._publish_state(state, published_pose_wc)
+        self._publish_overlay_inputs(
+            stamp,
+            gray,
+            pose_cw,
+            state.keypoints,
+            'TRACKING',
+            (0, 255, 0),
+            [
+                f'frame {state.frame_index}',
+                f'kpts {len(state.keypoints)}',
+                f'map {len(self._map_points)}',
+                f'conf {confidence:.2f}',
+            ],
+        )
 
         if self._needs_keyframe(state):
             self._create_keyframe_and_expand_map(state)
