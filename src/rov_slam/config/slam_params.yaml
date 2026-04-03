@@ -41,7 +41,7 @@ monocular_slam_node:
     max_pnp_median_reprojection_px: 2.5
     min_pose_confidence: 0.15
     pose_smoothing_alpha: 0.35
-    pose_hold_timeout_sec: 0.75
+    pose_hold_timeout_sec: 2.5
     triangulation_min_depth_m: 0.05
     triangulation_max_depth_m: 12.0
     min_triangulation_parallax_deg: 0.5

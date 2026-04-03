@@ -231,6 +231,8 @@ class MonocularSlamNode(Node):
         self._last_good_pose_cw: Optional[np.ndarray] = None
         self._last_good_pose_sec: Optional[float] = None
         self._hold_pose_until_sec: Optional[float] = None
+        self._last_published_pose_wc: Optional[np.ndarray] = None
+        self._prev_published_pose_wc: Optional[np.ndarray] = None
 
         self.pose_pub = self.create_publisher(PoseStamped, '/rov/slam/pose', 10)
         self.odom_pub = self.create_publisher(Odometry, '/rov/slam/odom', 10)
@@ -395,11 +397,40 @@ class MonocularSlamNode(Node):
 
         if pose_cw is None:
             if self._should_hold_last_pose(now_sec):
+                predicted_pose_wc = self._predict_next_pose_wc()
+                if predicted_pose_wc is None:
+                    predicted_pose_wc = self._last_published_pose_wc
+
+                if predicted_pose_wc is not None:
+                    predicted_pose_cw = np.linalg.inv(predicted_pose_wc)
+                    state.pose_cw = predicted_pose_cw
+                    self._current_pose_cw = predicted_pose_cw
+                    predicted_pose_wc = self._smooth_pose_for_publish(predicted_pose_wc, 0.0)
+                    self._publish_state(state, predicted_pose_wc)
+                    self._record_published_pose(predicted_pose_wc)
+                    self._publish_overlay_inputs(
+                        stamp,
+                        gray,
+                        predicted_pose_cw,
+                        state.keypoints,
+                        'PREDICTING',
+                        (0, 180, 255),
+                        [
+                            f'frame {state.frame_index}',
+                            f'kpts {len(state.keypoints)}',
+                            f'map {len(self._map_points)}',
+                            'constant-velocity hold',
+                        ],
+                    )
+                    self._trim_map_points(predicted_pose_wc)
+                    return
+
                 held_pose_cw = np.array(self._last_good_pose_cw, copy=True)  # type: ignore[arg-type]
                 state.pose_cw = held_pose_cw
                 self._current_pose_cw = held_pose_cw
                 held_pose_wc = self._smooth_pose_for_publish(np.linalg.inv(held_pose_cw), 0.0)
                 self._publish_state(state, held_pose_wc)
+                self._record_published_pose(held_pose_wc)
                 self._publish_overlay_inputs(
                     stamp,
                     gray,
@@ -413,7 +444,7 @@ class MonocularSlamNode(Node):
                         f'map {len(self._map_points)}',
                     ],
                 )
-                self._trim_map_points(np.linalg.inv(held_pose_cw))
+                self._trim_map_points(held_pose_wc)
                 return
 
             if self._last_frame is None:
@@ -441,6 +472,7 @@ class MonocularSlamNode(Node):
         self._last_frame = state
         published_pose_wc = self._smooth_pose_for_publish(np.linalg.inv(pose_cw), confidence)
         self._publish_state(state, published_pose_wc)
+        self._record_published_pose(published_pose_wc)
         self._publish_overlay_inputs(
             stamp,
             gray,
@@ -924,6 +956,29 @@ class MonocularSlamNode(Node):
             color = status_color if index == 0 else (235, 235, 235)
             cv2.putText(image_bgr, line, (x0 + padding, y), font, font_scale, color, thickness, cv2.LINE_AA)
             y += max_h + line_gap
+
+    def _record_published_pose(self, pose_wc: np.ndarray) -> None:
+        self._prev_published_pose_wc = (
+            None if self._last_published_pose_wc is None else np.array(self._last_published_pose_wc, copy=True)
+        )
+        self._last_published_pose_wc = np.array(pose_wc, copy=True)
+
+    def _predict_next_pose_wc(self) -> Optional[np.ndarray]:
+        if self._last_published_pose_wc is None:
+            return None
+        if self._prev_published_pose_wc is None:
+            return np.array(self._last_published_pose_wc, copy=True)
+
+        last = self._last_published_pose_wc
+        prev = self._prev_published_pose_wc
+        try:
+            delta = last @ np.linalg.inv(prev)
+            predicted = delta @ last
+            if not np.isfinite(predicted).all():
+                return np.array(last, copy=True)
+            return predicted
+        except np.linalg.LinAlgError:
+            return np.array(last, copy=True)
 
     def _draw_keypoints(self, image_bgr: np.ndarray, keypoints: List[cv2.KeyPoint]) -> None:
         if not keypoints:
