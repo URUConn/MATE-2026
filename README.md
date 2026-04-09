@@ -125,7 +125,7 @@ Drive is handled outside of ROS by Cockpit + autopilot services on onboard.
 In Cockpit vehicle settings, set these endpoints to your onboard computer:
 
 - **Vehicle Address**: `<ONBOARD_IP_OR_HOSTNAME>`
-- **MAVLink2REST backend**: `http://<ONBOARD_IP_OR_HOSTNAME>:<MAVLINK2REST_PORT>`
+- **MAVLink2REST backend**: `ws://<HOST_RUNNING_MAVLINK2REST>:<MAVLINK2REST_PORT>`
 - **WebRTC signaling backend**: `http://<ONBOARD_IP_OR_HOSTNAME>:<WEBRTC_SIGNALING_PORT>`
 
 If the onboard address changes, update `Vehicle Address` first, then also update both backend URLs if they do not auto-follow the global address in your Cockpit build/profile.
@@ -140,7 +140,7 @@ If you are **not** using BlueOS, install and run `mavlink2rest` yourself. In thi
 - Onboard computer: `192.168.50.2`
 - Cockpit fields:
   - Vehicle Address: `192.168.50.2`
-  - MAVLink2REST backend: `http://127.0.0.1:6040` if Cockpit and `mavlink2rest` run on the laptop together
+  - MAVLink2REST backend: `ws://127.0.0.1:6040` if Cockpit and `mavlink2rest` run on the laptop together
   - WebRTC signaling backend: `http://192.168.50.2:<signaling_port_from_BlueOS>`
 
 ### 4.3 Functional checks
@@ -248,11 +248,10 @@ source install/setup.bash
 ros2 launch rov_onboard onboard_launch.py
 ```
 
-For Cockpit-only operation, you can leave `GCS_IP` unset.
+`onboard_launch.py` now forwards MAVLink by default to `192.168.50.1:14550`
+when no override is provided.
 
-If you also need legacy MAVLink UDP forwarding to a topside host,
-`onboard_launch.py` auto-starts `mavlink-routerd` when `GCS_IP` is set
-or when `gcs_ip:=...` is passed directly:
+If your topside host uses a different IP, override with `GCS_IP` or `gcs_ip:=...`:
 
 ```bash
 ros2 launch rov_onboard onboard_launch.py gcs_ip:=<CONTROL_LAPTOP_IP> pix_serial:=/dev/ttyACM0 pix_baud:=115200
@@ -298,8 +297,8 @@ ros2 launch rov_control control_launch.py \
 
 Then set Cockpit `MAVLink2REST backend` to:
 
-- `http://127.0.0.1:6040` if Cockpit and `mavlink2rest` are on the same laptop
-- `http://<HOST_RUNNING_MAVLINK2REST>:6040` if you move it to another host
+- `ws://127.0.0.1:6040` if Cockpit and `mavlink2rest` are on the same laptop
+- `ws://<HOST_RUNNING_MAVLINK2REST>:6040` if you move it to another host
 
 If you need the legacy UDP video bridge on laptop too:
 

@@ -62,8 +62,8 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'gcs_ip',
-            default_value=EnvironmentVariable('GCS_IP', default_value=''),
-            description='Topside Cockpit/GCS IP for MAVLink UDP forwarding. Empty disables forwarding.',
+            default_value=EnvironmentVariable('GCS_IP', default_value='192.168.50.1'),
+            description='Topside Cockpit/GCS IP for MAVLink UDP forwarding. Defaults to 192.168.50.1.',
         ),
         DeclareLaunchArgument(
             'gcs_port',
