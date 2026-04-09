@@ -1,6 +1,7 @@
-"""Launch file for the QGroundControl video bridge (`qgc_video_bridge_node`).
+"""Launch file for the legacy UDP video bridge (`qgc_video_bridge_node`).
 
 Kept under the legacy 'camera_viewer_only_launch.py' name for backward compatibility.
+Cockpit's primary video path is WebRTC from onboard services, so this launch is optional.
 """
 from launch import LaunchDescription
 from launch_ros.actions import Node

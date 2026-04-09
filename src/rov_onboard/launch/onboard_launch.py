@@ -1,4 +1,4 @@
-"""Launch onboard camera/arm nodes and optional MAVLink forwarding on LattePanda."""
+"""Launch onboard camera/arm nodes and optional MAVLink forwarding to a topside GCS."""
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess
@@ -11,6 +11,9 @@ import os
 
 def generate_launch_description():
     enable_mavlink_forward = LaunchConfiguration('enable_mavlink_forward')
+    gcs_ip = LaunchConfiguration('gcs_ip')
+    gcs_port = LaunchConfiguration('gcs_port')
+    # Backward-compatible aliases (legacy docs/scripts may still pass qgc_*).
     qgc_ip = LaunchConfiguration('qgc_ip')
     qgc_port = LaunchConfiguration('qgc_port')
     pix_serial = LaunchConfiguration('pix_serial')
@@ -21,17 +24,25 @@ def generate_launch_description():
         # Use env vars so launch substitutions can be injected cleanly into a shell command.
         cmd=[
             'bash', '-lc',
-            'exec "${MAVLINK_ROUTER_BIN}" -e "${QGC_IP}:${QGC_PORT}" "${PIX_SERIAL}:${PIX_BAUD}"',
+            'TARGET_IP="${GCS_IP:-${QGC_IP}}"; '
+            'TARGET_PORT="${GCS_PORT:-${QGC_PORT}}"; '
+            'exec "${MAVLINK_ROUTER_BIN}" -e "${TARGET_IP}:${TARGET_PORT}" "${PIX_SERIAL}:${PIX_BAUD}"',
         ],
         additional_env={
             'MAVLINK_ROUTER_BIN': mavlink_router_bin,
+            'GCS_IP': gcs_ip,
+            'GCS_PORT': gcs_port,
             'QGC_IP': qgc_ip,
             'QGC_PORT': qgc_port,
             'PIX_SERIAL': pix_serial,
             'PIX_BAUD': pix_baud,
         },
         condition=IfCondition(PythonExpression([
-            "'", enable_mavlink_forward, "'.lower() in ['1', 'true', 'yes'] and '", qgc_ip, "' != ''"
+            "'", enable_mavlink_forward, "'.lower() in ['1', 'true', 'yes'] and ('",
+            gcs_ip,
+            "' != '' or '",
+            qgc_ip,
+            "' != '')",
         ])),
         output='screen',
         respawn=True,
@@ -47,17 +58,27 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'enable_mavlink_forward',
             default_value='true',
-            description='If true, run mavlink-routerd to forward Pixhawk MAVLink to QGC.',
+            description='If true, run mavlink-routerd to forward Pixhawk MAVLink to a topside GCS.',
+        ),
+        DeclareLaunchArgument(
+            'gcs_ip',
+            default_value=EnvironmentVariable('GCS_IP', default_value=''),
+            description='Topside Cockpit/GCS IP for MAVLink UDP forwarding. Empty disables forwarding.',
+        ),
+        DeclareLaunchArgument(
+            'gcs_port',
+            default_value='14550',
+            description='Topside UDP port for MAVLink input (Cockpit/other GCS backend).',
         ),
         DeclareLaunchArgument(
             'qgc_ip',
             default_value=EnvironmentVariable('QGC_IP', default_value=''),
-            description='Control computer IP for MAVLink UDP forwarding. Empty disables forwarding.',
+            description='Deprecated alias for gcs_ip (kept for backward compatibility).',
         ),
         DeclareLaunchArgument(
             'qgc_port',
             default_value='14550',
-            description='Control computer UDP port for QGC MAVLink input.',
+            description='Deprecated alias for gcs_port (kept for backward compatibility).',
         ),
         DeclareLaunchArgument(
             'pix_serial',

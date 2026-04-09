@@ -4,24 +4,25 @@
 MATEROV is an underwater robotics competition. This repository contains the ROS workspace for our 2026 entry, which includes:
 - **ROS 2 handles:**
   - arm encoder values from the control laptop -> onboard servo commands
-  - camera transport used by a QGC video bridge
-- **QGroundControl + autopilot stack** handles vehicle driving/thrusters.
+  - camera transport and optional legacy UDP video bridge
+- **Autopilot + GCS stack** handles vehicle driving/thrusters.
 
 ---
 
 ## Architecture
 
 ```
-Control Laptop (Ubuntu + QGroundControl + ROS 2)          Onboard Computer (Ubuntu + ROS 2 + autopilot HW)
+Control Laptop (Ubuntu + Cockpit + ROS 2)                 Onboard Computer (Ubuntu + ROS 2 + autopilot HW)
 
-[QGroundControl] --MAVLink--> [Autopilot/ESCs]            (drive control path, not ROS)
-      ^
-      | UDP video :5600 from ROS bridge
-[rov_control/qgc_video_bridge_node] <-- ROS compressed image -- [rov_onboard/camera_node]
+[Cockpit UI] --HTTP/WebSocket--> [MAVLink2REST]           (vehicle telemetry/control path, not ROS)
+[Cockpit UI] --WebRTC signaling--> [Onboard signaling svc]
 
 [arm controller encoder USB] --/rov/arm/encoder_values--> [rov_control/arm_encoder_bridge_node]
                                                            |
                                                            '--/rov/arm/servo_command--> [rov_onboard/arm_servo_node -> PinPong servos]
+
+Optional legacy path:
+[rov_control/qgc_video_bridge_node] <-- ROS compressed image -- [rov_onboard/camera_node] -> UDP video :5600
 ```
 
 ---
@@ -33,7 +34,7 @@ Split into 2 main packages for the two hardware stacks, plus a shared messages p
   - `ArmServoCommand.msg`
 - `rov_control` (runs on control laptop)
   - `arm_encoder_bridge_node`
-  - `qgc_video_bridge_node`
+  - `qgc_video_bridge_node` (optional legacy UDP video bridge)
 - `rov_onboard` (runs on onboard computer)
   - `camera_node`
   - `arm_servo_node`
@@ -59,7 +60,8 @@ Split into 2 main packages for the two hardware stacks, plus a shared messages p
 Run all commands on both machines unless noted.
 
 - Assumes ROS 2 Humble and Ubuntu 22.04.
-- Also assumes you have QGroundControl installed on the control laptop.
+- Cockpit on the control laptop needs onboard MAVLink2REST and WebRTC signaling services.
+- BlueOS provides these services out of the box. If you are not using BlueOS, you must deploy equivalent services.
 
 ```bash
 source /opt/ros/humble/setup.bash
@@ -114,25 +116,52 @@ ros2 topic echo /test
 
 ---
 
-## 4) QGroundControl + Drive Setup (High Level)
+## 4) Cockpit + Drive Setup (High Level)
 
-Drive is handled outside of ROS by QGroundControl. To set up:
+Drive is handled outside of ROS by Cockpit + autopilot services on onboard.
 
-1. Connect QGroundControl to your autopilot (USB/telemetry Ethernet).
-2. Calibrate joystick in QGroundControl.
-3. Configure vehicle mode/buttons in QGroundControl.
-4. Verify thruster response in QGC motor test / armed mode.
+### 4.1 Cockpit connection fields
+
+In Cockpit vehicle settings, set these endpoints to your onboard computer:
+
+- **Vehicle Address**: `<ONBOARD_IP_OR_HOSTNAME>`
+- **MAVLink2REST backend**: `http://<ONBOARD_IP_OR_HOSTNAME>:<MAVLINK2REST_PORT>`
+- **WebRTC signaling backend**: `http://<ONBOARD_IP_OR_HOSTNAME>:<WEBRTC_SIGNALING_PORT>`
+
+If the onboard address changes, update `Vehicle Address` first, then also update both backend URLs if they do not auto-follow the global address in your Cockpit build/profile.
+
+For BlueOS deployments, use the ports shown on the BlueOS Services page (MAVLink2REST is commonly `6040`).
+
+### 4.2 Example values (if your network is 192.168.50.x)
+
+- Control laptop: `192.168.50.1`
+- Onboard computer: `192.168.50.2`
+- Cockpit fields:
+  - Vehicle Address: `192.168.50.2`
+  - MAVLink2REST backend: `http://192.168.50.2:6040` (confirm in BlueOS)
+  - WebRTC signaling backend: `http://192.168.50.2:<signaling_port_from_BlueOS>`
+
+### 4.3 Functional checks
+
+1. Verify Cockpit telemetry updates after connecting to your vehicle profile.
+2. Verify joystick/gamepad mapping in Cockpit.
+3. Verify mode/arm/disarm actions are available in Cockpit.
+4. Verify thruster response in water/bench-safe conditions.
 
 ---
 
-## 5) Video to QGroundControl (via ROS bridge)
+## 5) Video in Cockpit (Primary) + Legacy UDP Bridge (Optional)
 
-- `camera_node` publishes `/rov/camera/image_compressed` on onboard.
-- `qgc_video_bridge_node` on laptop subscribes and forwards low-latency H.264 over RTP to `udp_host:udp_port` (default port `5600`) using `ffmpeg`.
-- In QGroundControl, set video source to UDP and port `5600`.
-- If video does not decode in your QGC build, set `output_format: h264` in `src/rov_control/config/control_params.yaml` as fallback.
+Primary path for Cockpit:
 
-Run onboard:
+- `camera_node` publishes `/rov/camera/image_compressed` on onboard for ROS consumers.
+- Cockpit video is expected to come from onboard WebRTC services (for example BlueOS camera services), not from `qgc_video_bridge_node`.
+
+Optional legacy fallback path (for UDP-only viewers):
+
+- `qgc_video_bridge_node` on laptop can still forward `/rov/camera/image_compressed` to `udp_host:udp_port` using `ffmpeg`.
+
+Run onboard camera node:
 
 ```bash
 cd ~/MATE2026
@@ -140,7 +169,7 @@ source install/setup.bash
 ros2 launch rov_onboard camera_only_launch.py
 ```
 
-Run laptop:
+Run legacy UDP bridge only when needed:
 
 ```bash
 cd ~/MATE2026
@@ -148,7 +177,7 @@ source install/setup.bash
 ros2 launch rov_control camera_viewer_only_launch.py
 ```
 
-If QGC does not show video:
+If Cockpit video is missing, verify onboard services and ROS camera topic:
 
 ```bash
 # verify compressed topic exists
@@ -214,16 +243,20 @@ Onboard:
 ```bash
 cd ~/MATE2026
 source install/setup.bash
-export QGC_IP=<CONTROL_LAPTOP_IP>
 ros2 launch rov_onboard onboard_launch.py
 ```
 
-`onboard_launch.py` now auto-starts MAVLink forwarding (`mavlink-routerd`) when `QGC_IP` is set
-or when `qgc_ip:=...` is passed directly:
+For Cockpit-only operation, you can leave `GCS_IP` unset.
+
+If you also need legacy MAVLink UDP forwarding to a topside host,
+`onboard_launch.py` auto-starts `mavlink-routerd` when `GCS_IP` is set
+or when `gcs_ip:=...` is passed directly:
 
 ```bash
-ros2 launch rov_onboard onboard_launch.py qgc_ip:=<CONTROL_LAPTOP_IP> pix_serial:=/dev/ttyACM0 pix_baud:=115200
+ros2 launch rov_onboard onboard_launch.py gcs_ip:=<CONTROL_LAPTOP_IP> pix_serial:=/dev/ttyACM0 pix_baud:=115200
 ```
+
+Legacy compatibility aliases still work (`qgc_ip:=...`, `qgc_port:=...`).
 
 If needed, disable forwarding for bench tests:
 
@@ -239,6 +272,12 @@ source install/setup.bash
 ros2 launch rov_control control_launch.py
 ```
 
+If you need the legacy UDP video bridge on laptop too:
+
+```bash
+ros2 launch rov_control control_launch.py enable_udp_video_bridge:=true
+```
+
 ---
 
 ## Key Config Files
@@ -246,7 +285,7 @@ ros2 launch rov_control control_launch.py
 - `src/rov_control/config/control_params.yaml`
   - encoder input topic
   - axis scaling/offset/clamps
-  - QGC bridge UDP/ffmpeg settings
+  - optional legacy UDP bridge/ffmpeg settings
 - `src/rov_onboard/config/onboard_params.yaml`
   - camera settings
   - PinPong + servo pin/range/timeout settings
@@ -255,6 +294,6 @@ ros2 launch rov_control control_launch.py
 
 ## Notes
 
-- Keep ROS and QGC responsibilities separate:
+- Keep ROS and vehicle-control responsibilities separate:
   - ROS: arm + camera transport
-  - QGC/autopilot: vehicle drive and piloting
+  - Cockpit/autopilot services: vehicle drive and piloting

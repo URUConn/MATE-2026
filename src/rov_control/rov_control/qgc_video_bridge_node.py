@@ -1,8 +1,7 @@
-"""
-QGC Video Bridge Node
+"""Legacy UDP video bridge for viewers like QGroundControl.
 
-Subscribes to the ROS compressed camera topic and forwards frames to QGroundControl
-using an ffmpeg UDP stream.
+Cockpit's preferred video path is onboard WebRTC signaling/media (for example via BlueOS),
+so this node remains as an optional fallback path.
 """
 
 import subprocess
@@ -60,7 +59,7 @@ class QgcVideoBridgeNode(Node):
 
         self._start_ffmpeg()
         self.get_logger().info(
-            f'QGC bridge active: {self.input_topic} -> udp://{self.udp_host}:{self.udp_port} ({self.output_format})'
+            f'UDP bridge active: {self.input_topic} -> udp://{self.udp_host}:{self.udp_port} ({self.output_format})'
         )
 
     def _ffmpeg_command(self) -> List[str]:
