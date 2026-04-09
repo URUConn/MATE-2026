@@ -13,15 +13,18 @@ def generate_launch_description():
     enable_udp_video_bridge = LaunchConfiguration('enable_udp_video_bridge')
     enable_mavlink2rest = LaunchConfiguration('enable_mavlink2rest')
     mavlink2rest_bin = LaunchConfiguration('mavlink2rest_bin')
-    mavlink2rest_source = LaunchConfiguration('mavlink2rest_source')
-    mavlink2rest_port = LaunchConfiguration('mavlink2rest_port')
+    mavlink2rest_args = LaunchConfiguration('mavlink2rest_args')
 
     run_mavlink2rest = ExecuteProcess(
         # Keep arg formatting configurable because mavlink2rest packaging/CLI varies by install source.
         cmd=[
             'bash', '-lc',
             'if command -v "${MAVLINK2REST_BIN}" >/dev/null 2>&1; then '
-            '  exec "${MAVLINK2REST_BIN}" --master "${MAVLINK2REST_SOURCE}" --port "${MAVLINK2REST_PORT}"; '
+            '  if [ -n "${MAVLINK2REST_ARGS}" ]; then '
+            '    exec "${MAVLINK2REST_BIN}" ${MAVLINK2REST_ARGS}; '
+            '  else '
+            '    exec "${MAVLINK2REST_BIN}"; '
+            '  fi; '
             'else '
             '  echo "[mavlink2rest] binary not found: ${MAVLINK2REST_BIN} (skipping)"; '
             '  exit 0; '
@@ -29,8 +32,7 @@ def generate_launch_description():
         ],
         additional_env={
             'MAVLINK2REST_BIN': mavlink2rest_bin,
-            'MAVLINK2REST_SOURCE': mavlink2rest_source,
-            'MAVLINK2REST_PORT': mavlink2rest_port,
+            'MAVLINK2REST_ARGS': mavlink2rest_args,
         },
         condition=IfCondition(enable_mavlink2rest),
         output='screen',
@@ -59,14 +61,9 @@ def generate_launch_description():
             description='Executable name/path for mavlink2rest.',
         ),
         DeclareLaunchArgument(
-            'mavlink2rest_source',
-            default_value='udpin:0.0.0.0:14550',
-            description='MAVLink source string consumed by mavlink2rest.',
-        ),
-        DeclareLaunchArgument(
-            'mavlink2rest_port',
-            default_value='6040',
-            description='HTTP port exposed by mavlink2rest for Cockpit backend URL.',
+            'mavlink2rest_args',
+            default_value='',
+            description='Optional extra CLI args passed to mavlink2rest (leave blank to run with no args).',
         ),
         run_mavlink2rest,
         Node(

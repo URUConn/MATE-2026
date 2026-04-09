@@ -132,7 +132,7 @@ If the onboard address changes, update `Vehicle Address` first, then also update
 
 For BlueOS deployments, use the ports shown on the BlueOS Services page (MAVLink2REST is commonly `6040`).
 
-If you are **not** using BlueOS, install and run `mavlink2rest` yourself. In this repo, the ROS laptop launch will try to auto-start it locally by default.
+If you are **not** using BlueOS, install and run `mavlink2rest` yourself. In this repo, the ROS laptop launch will try to auto-start it locally by default, but it does **not** assume a specific CLI. If your build needs arguments, pass them with `mavlink2rest_args:=...`.
 
 ### 4.2 Example values (if your network is 192.168.50.x)
 
@@ -140,7 +140,7 @@ If you are **not** using BlueOS, install and run `mavlink2rest` yourself. In thi
 - Onboard computer: `192.168.50.2`
 - Cockpit fields:
   - Vehicle Address: `192.168.50.2`
-  - MAVLink2REST backend: `http://127.0.0.1:6040` (if you launch `mavlink2rest` from the laptop via `rov_control/control_launch.py`)
+  - MAVLink2REST backend: `http://127.0.0.1:6040` if Cockpit and `mavlink2rest` run on the laptop together
   - WebRTC signaling backend: `http://192.168.50.2:<signaling_port_from_BlueOS>`
 
 ### 4.3 Functional checks
@@ -285,17 +285,15 @@ ros2 launch rov_control control_launch.py enable_mavlink2rest:=true
 Defaults used by this launch:
 
 - `mavlink2rest_bin:=mavlink2rest`
-- `mavlink2rest_source:=udpin:0.0.0.0:14550`
-- `mavlink2rest_port:=6040`
+- `mavlink2rest_args:=` (blank = run binary with no extra flags)
 
-Example with explicit overrides:
+If your downloaded `mavlink2rest` needs CLI flags, pass them explicitly:
 
 ```bash
 ros2 launch rov_control control_launch.py \
   enable_mavlink2rest:=true \
   mavlink2rest_bin:=mavlink2rest \
-  mavlink2rest_source:=udpin:0.0.0.0:14550 \
-  mavlink2rest_port:=6040
+  mavlink2rest_args:='--your-flag --another-flag value'
 ```
 
 Then set Cockpit `MAVLink2REST backend` to:
