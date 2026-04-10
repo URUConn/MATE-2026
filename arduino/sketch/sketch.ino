@@ -27,7 +27,7 @@ const float ENCODER_ACTIVE_DEG[SENSOR_AXES] = {165.0, 119.0, 119.0, 270.0, 270.0
 
 // Factory defaults (edit these to change out-of-box calibration).
 const float FACTORY_ZERO_OFFSET[SENSOR_AXES] = {308.145, 117.686, 125.947, 0, 0};
-const int FACTORY_DIRECTION[SENSOR_AXES] = {1, 1, 1, 1, 1};
+const int FACTORY_DIRECTION[SENSOR_AXES] = {1, 1, 1, 1, -1};
 const float FACTORY_CAL_DEG[SENSOR_AXES][4] = {
   {0, 90, 180, 270},
   {0, 90, 180, 270},
@@ -35,11 +35,11 @@ const float FACTORY_CAL_DEG[SENSOR_AXES][4] = {
   {0, 90, 180, 270},
   {0, 90, 180, 270}
 };
-const bool FACTORY_TWOPT_ENABLED[SENSOR_AXES] = {true, true, true, false, false};
-const bool FACTORY_TWOPT_MIN_SET[SENSOR_AXES] = {true, true, true, false, false};
-const bool FACTORY_TWOPT_MAX_SET[SENSOR_AXES] = {true, true, true, false, false};
-const float FACTORY_TWOPT_MIN_ENC_DEG[SENSOR_AXES] = {359.91, 359.82, 0.00, 0, 0};
-const float FACTORY_TWOPT_MAX_ENC_DEG[SENSOR_AXES] = {172.71, 118.04, 249.52, 0, 0};
+const bool FACTORY_TWOPT_ENABLED[SENSOR_AXES] = {true, true, true, false, true};
+const bool FACTORY_TWOPT_MIN_SET[SENSOR_AXES] = {true, true, true, false, true};
+const bool FACTORY_TWOPT_MAX_SET[SENSOR_AXES] = {true, true, true, false, true};
+const float FACTORY_TWOPT_MIN_ENC_DEG[SENSOR_AXES] = {359.91, 359.82, 0.00, 0, 97.21};
+const float FACTORY_TWOPT_MAX_ENC_DEG[SENSOR_AXES] = {172.71, 118.04, 249.52, 0, 9.23};
 const float FACTORY_TWOPT_MIN_JOINT_DEG[SENSOR_AXES] = {0, 0, 0, 0, 0};
 const float FACTORY_TWOPT_MAX_JOINT_DEG[SENSOR_AXES] = {165.0, 119.0, 119.0, 270.0, 270.0};
 
