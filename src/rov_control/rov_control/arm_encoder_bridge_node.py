@@ -175,6 +175,10 @@ class ArmEncoderBridgeNode(Node):
         if not line:
             return
 
+        # Ignore human-readable debug/calibration output from Arduino.
+        if line.startswith('#'):
+            return
+
         parts = [part.strip() for part in line.split(',')]
         if len(parts) < self.axis_count:
             self.get_logger().warn(

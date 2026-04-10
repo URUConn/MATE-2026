@@ -1,3 +1,31 @@
+  - QGC/autopilot: vehicle drive and piloting
+- Keep ROS and QGC responsibilities separate:
+  - QGC bridge UDP/ffmpeg settings
+ros2 launch rov_onboard onboard_launch.py qgc_ip:=<CONTROL_LAPTOP_IP> pix_serial:=/dev/ttyACM0 pix_baud:=115200
+`onboard_launch.py` now auto-starts MAVLink forwarding (`mavlink-routerd`) when `QGC_IP` is set
+or when `qgc_ip:=...` is passed directly:
+export QGC_IP=<CONTROL_LAPTOP_IP>
+If QGC does not show video:
+Run laptop:
+Run onboard:
+- `camera_node` publishes `/rov/camera/image_compressed` on onboard.
+- `qgc_video_bridge_node` on laptop subscribes and forwards low-latency H.264 over RTP to `udp_host:udp_port` (default port `5600`) using `ffmpeg`.
+- In QGroundControl, set video source to UDP and port `5600`.
+- If video does not decode in your QGC build, set `output_format: h264` in `src/rov_control/config/control_params.yaml` as fallback.
+## 5) Video to QGroundControl (via ROS bridge)
+1. Connect QGroundControl to your autopilot (USB/telemetry Ethernet).
+2. Calibrate joystick in QGroundControl.
+3. Configure vehicle mode/buttons in QGroundControl.
+4. Verify thruster response in QGC motor test / armed mode.
+Drive is handled outside of ROS by QGroundControl. To set up:
+## 4) QGroundControl + Drive Setup (High Level)
+- Also assumes you have QGroundControl installed on the control laptop.
+  - `qgc_video_bridge_node`
+[QGroundControl] --MAVLink--> [Autopilot/ESCs]            (drive control path, not ROS)
+      ^
+      | UDP video :5600 from ROS bridge
+[rov_control/qgc_video_bridge_node] <-- ROS compressed image -- [rov_onboard/camera_node]
+Control Laptop (Ubuntu + QGroundControl + ROS 2)          Onboard Computer (Ubuntu + ROS 2 + autopilot HW)
 # MATE 2026 ROV
 ### UConn Underwater Robotics Club
 
@@ -5,6 +33,7 @@ MATEROV is an underwater robotics competition. This repository contains the ROS 
 - **ROS 2 handles:**
   - arm encoder values from the control laptop -> onboard servo commands
   - camera transport used by a QGC video bridge
+- **QGroundControl + autopilot stack** handles vehicle driving/thrusters.
 - **QGroundControl + autopilot stack** handles vehicle driving/thrusters.
 
 ---
