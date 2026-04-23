@@ -28,4 +28,11 @@ def generate_launch_description():
             parameters=[config],
             output='screen',
         ),
+        Node(
+            package='rov_control',
+            executable='crab_trigger_node',
+            name='crab_trigger_node',
+            parameters=[config],
+            output='screen',
+        ),
     ])

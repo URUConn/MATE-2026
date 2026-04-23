@@ -28,6 +28,7 @@ setup(
         'console_scripts': [
             'camera_node = rov_onboard.camera_node:main',
             'arm_servo_node = rov_onboard.arm_servo_node:main',
+            'crab_classifier_node = rov_onboard.crab_classifier_node:main',
         ],
     },
 )

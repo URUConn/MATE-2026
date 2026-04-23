@@ -22,3 +22,7 @@ qgc_video_bridge_node:
     bitrate: 1200k
     output_format: rtp
     gop_size: 10
+
+crab_trigger_node:
+  ros__parameters:
+    trigger_topic: /rov/crab/trigger

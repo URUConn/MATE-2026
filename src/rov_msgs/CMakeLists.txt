@@ -11,6 +11,8 @@ find_package(std_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ArmServoCommand.msg"
+  "msg/CrabClassification.msg"
+  "msg/CrabClassifyTrigger.msg"
   DEPENDENCIES std_msgs
 )
 

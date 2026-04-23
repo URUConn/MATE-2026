@@ -89,4 +89,11 @@ def generate_launch_description():
             parameters=[config],
             output='screen',
         ),
+        Node(
+            package='rov_onboard',
+            executable='crab_classifier_node',
+            name='crab_classifier_node',
+            parameters=[config],
+            output='screen',
+        ),
     ])

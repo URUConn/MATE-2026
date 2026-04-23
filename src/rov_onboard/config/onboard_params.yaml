@@ -32,3 +32,11 @@ arm_servo_node:
     command_timeout_sec: 0.5
     use_pinpong: true
     pinpong_platform: auto
+
+crab_classifier_node:
+  ros__parameters:
+    model_path: /home/lattepanda/MATE2026/models/crab_model.onnx
+    confidence_threshold: 0.5
+    input_topic:   /rov/camera/image_compressed
+    output_topic:  /rov/crab/classification
+    trigger_topic: /rov/crab/trigger

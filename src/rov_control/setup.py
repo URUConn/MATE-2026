@@ -28,6 +28,7 @@ setup(
         'console_scripts': [
             'arm_encoder_bridge_node = rov_control.arm_encoder_bridge_node:main',
             'qgc_video_bridge_node = rov_control.qgc_video_bridge_node:main',
+            'crab_trigger_node = rov_control.crab_trigger_node:main',
         ],
     },
 )
