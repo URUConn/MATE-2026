@@ -92,8 +92,8 @@ def threat_table():
         # [("Distance", rig), ("Depth", rig), ("Distance", rig), ("Depth", rig), ...]
         threats = iceberg[4:]
 
-        # loop through threats two at a time (distance + depth)
-        for t in range(0, len(threats), 2):
+        # loop through complete threat pairs only; ignore any incomplete trailing entry
+        for t in range(0, len(threats) - 1, 2):
             dist_threat = threats[t]
             depth_threat = threats[t+1]
 
