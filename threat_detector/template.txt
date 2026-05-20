@@ -1,0 +1,30 @@
+temaple to easily copy and paste into terminal for testing of python code
+platforms already set to the example ones given
+
+# ICEBERG
+<lon_deg>
+<lon_min>
+<lon_sec>
+<lon_hemi>
+<lat_deg>
+<lat_min>
+<lat_sec>
+<lat_hemi>
+<heading_deg>
+<keel_depth_m>
+Hibernia
+43.7504
+-48.7819
+-78
+Sea Rose
+46.7895
+-48.1417
+-107
+Terra Nova
+46.4
+-48.4
+91
+Hebron
+46.544
+-48.498
+93
